@@ -39,7 +39,7 @@ class ViewController: UIViewController {
         _butttonSeek.addTarget(self, action: #selector(ViewController.seek), for: .touchUpInside)
         _slider.addTarget(self, action: #selector(ViewController.valueChange), for: .valueChanged)
         
-        FPLogger.enable(modules: [FPLogger.Module.httpStream])
+//        FPLogger.enable(modules: [FPLogger.Module.httpStream])
         _slider.maximumValue = 1
         _slider.minimumValue = 0
 //        FPLogger.shared.logToFile = false

@@ -15,7 +15,7 @@ extension OSSpinLock {
 
 extension UnsafeMutableRawPointer {
     func to<T : AnyObject>(object: T.Type) -> T {
-        return self.to(object: T.self)
+        return Unmanaged<T>.fromOpaque(self).takeUnretainedValue()
     }
     static func voidPointer<T: AnyObject>(from object: T) -> UnsafeMutableRawPointer {
         return Unmanaged<T>.passUnretained(object).toOpaque()

@@ -184,11 +184,20 @@ extension FreePlayer {
         }
     }
     
+    public func preload() {
+        DispatchQueue.main.async {
+            self._audioStream?.setPreloading(loading: true)
+            self._audioStream?.open()
+        }
+    }
+    
     public func seek(to time: Float) {
         DispatchQueue.main.async {
             let duration = self.durationInSeconds
             if duration <= 0 { return }
-            let offset = time / duration
+            var offset = time / duration
+            if offset > 1 { offset = 1 }
+            if offset < 1 { offset = 0 }
             self._audioStream?.resume()
             self._audioStream?.seek(to: offset)
             #if os(iOS)
