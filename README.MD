@@ -16,7 +16,7 @@ Features
 
 - [x] Prepared for tough network conditions: adjustable buffer sizes, stream pre-buffering and restart on failures，restart on not full content streamed when end of stream
 
-- [x] Metadata support: ShoutCast metadata, IDv2 tags
+- [x] Metadata support: ShoutCast metadata, ID3V1, ID3v1.1, ID3v2.2, ID3v2.3, ID3v2.4
 
 - [x] Local disk caching: user only needs to stream a file once and after that it can be played from a local cache
 
