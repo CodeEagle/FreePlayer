@@ -34,6 +34,10 @@
 		10A64C251E5958BA004F77BC /* CFNetwork.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 10A64C241E5958BA004F77BC /* CFNetwork.framework */; };
 		10A64C271E5968C3004F77BC /* AudioStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10A64C261E5968C3004F77BC /* AudioStream.swift */; };
 		10A64C291E5968EA004F77BC /* AudioQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10A64C281E5968EA004F77BC /* AudioQueue.swift */; };
+		10F67C591E7FE30B0097EF4C /* ID3Parser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10F67C581E7FE30B0097EF4C /* ID3Parser.swift */; };
+		10F67C5D1E7FE8070097EF4C /* id3v1.1.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = 10F67C5A1E7FE8070097EF4C /* id3v1.1.mp3 */; };
+		10F67C5E1E7FE8070097EF4C /* id3v2.3.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = 10F67C5B1E7FE8070097EF4C /* id3v2.3.mp3 */; };
+		10F67C5F1E7FE8070097EF4C /* id3v2.4.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = 10F67C5C1E7FE8070097EF4C /* id3v2.4.mp3 */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -98,6 +102,10 @@
 		10A64C241E5958BA004F77BC /* CFNetwork.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CFNetwork.framework; path = System/Library/Frameworks/CFNetwork.framework; sourceTree = SDKROOT; };
 		10A64C261E5968C3004F77BC /* AudioStream.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AudioStream.swift; sourceTree = "<group>"; };
 		10A64C281E5968EA004F77BC /* AudioQueue.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AudioQueue.swift; sourceTree = "<group>"; };
+		10F67C581E7FE30B0097EF4C /* ID3Parser.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ID3Parser.swift; sourceTree = "<group>"; };
+		10F67C5A1E7FE8070097EF4C /* id3v1.1.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = id3v1.1.mp3; sourceTree = "<group>"; };
+		10F67C5B1E7FE8070097EF4C /* id3v2.3.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = id3v2.3.mp3; sourceTree = "<group>"; };
+		10F67C5C1E7FE8070097EF4C /* id3v2.4.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = id3v2.4.mp3; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -133,6 +141,9 @@
 			isa = PBXGroup;
 			children = (
 				106086611E5C16CA00A6F7CB /* 久远-光と波の记忆.mp3 */,
+				10F67C5A1E7FE8070097EF4C /* id3v1.1.mp3 */,
+				10F67C5B1E7FE8070097EF4C /* id3v2.3.mp3 */,
+				10F67C5C1E7FE8070097EF4C /* id3v2.4.mp3 */,
 				1060864C1E5C167500A6F7CB /* AppDelegate.swift */,
 				1060864E1E5C167500A6F7CB /* ViewController.swift */,
 				106086501E5C167500A6F7CB /* Main.storyboard */,
@@ -157,6 +168,7 @@
 				106086421E5BEFE400A6F7CB /* CachingStream.swift */,
 				106086441E5BEFEC00A6F7CB /* FileStream.swift */,
 				1048351F1E5D5CA400CED749 /* Log.swift */,
+				10F67C581E7FE30B0097EF4C /* ID3Parser.swift */,
 			);
 			name = Internal;
 			sourceTree = "<group>";
@@ -350,7 +362,10 @@
 				106086621E5C16CA00A6F7CB /* 久远-光と波の记忆.mp3 in Resources */,
 				106086571E5C167500A6F7CB /* LaunchScreen.storyboard in Resources */,
 				106086541E5C167500A6F7CB /* Assets.xcassets in Resources */,
+				10F67C5D1E7FE8070097EF4C /* id3v1.1.mp3 in Resources */,
+				10F67C5E1E7FE8070097EF4C /* id3v2.3.mp3 in Resources */,
 				106086521E5C167500A6F7CB /* Main.storyboard in Resources */,
+				10F67C5F1E7FE8070097EF4C /* id3v2.4.mp3 in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -395,6 +410,7 @@
 				106AD7EA1E6521E70020357C /* FreePlayer.swift in Sources */,
 				10A64C271E5968C3004F77BC /* AudioStream.swift in Sources */,
 				10A64C291E5968EA004F77BC /* AudioQueue.swift in Sources */,
+				10F67C591E7FE30B0097EF4C /* ID3Parser.swift in Sources */,
 				106086451E5BEFEC00A6F7CB /* FileStream.swift in Sources */,
 				10A64C1A1E593C8F004F77BC /* StreamOutput.swift in Sources */,
 				106086411E5BEFD700A6F7CB /* HttpStream.swift in Sources */,

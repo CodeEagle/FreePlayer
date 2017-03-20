@@ -13,7 +13,7 @@ protocol StreamInputDelegate: class {
     func streamHasBytesAvailable(data: UnsafePointer<UInt8>, numBytes: UInt32)
     func streamEndEncountered()
     func streamErrorOccurred(errorDesc: String)
-    func streamMetaDataAvailable( metaData: [String: String])
+    func streamMetaDataAvailable(metaData: [String: Metadata])
     func streamMetaDataByteSizeAvailable(sizeInBytes: UInt32)
     func streamHasDataCanPlay() -> Bool
 }
@@ -31,8 +31,3 @@ protocol StreamInputProtocol {
     func setScheduledInRunLoop(run: Bool)
     func set(url: URL)
 }
-
-//public protocol ID3ParserProtocol {
-//    func id3metaDataAvailable(metaData: [String : String])
-//    func id3tagSizeAvailable(tag size: UInt32)
-//}

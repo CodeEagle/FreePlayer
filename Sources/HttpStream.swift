@@ -26,6 +26,7 @@ final class HttpStream {
     fileprivate var _reopenTimes = 0
     fileprivate var _isReadedData = false
     fileprivate var _maxRetryCount = 10
+    fileprivate var _id3Parser: ID3Parser?
     
     // MARK: HTTP headers
     fileprivate var _httpHeadersParsed = false
@@ -55,9 +56,13 @@ final class HttpStream {
         _httpReadBuffer = nil
         _icyReadBuffer = nil
         _url = nil
+        _id3Parser = nil
     }
     
-    init() {}
+    init() {
+        _id3Parser = ID3Parser()
+        _id3Parser?.delegate = self
+    }
     
 }
 // MARK: Timer
@@ -125,6 +130,8 @@ extension HttpStream {
         CFReadStreamSetProperty(stream, CFStreamPropertyKey(rawValue: kCFStreamNetworkServiceType), kCFStreamNetworkServiceTypeBackground)
         CFReadStreamSetProperty(stream, CFStreamPropertyKey(rawValue: kCFStreamPropertyHTTPShouldAutoredirect), kCFBooleanTrue)
         if let proxy = CFNetworkCopySystemProxySettings()?.takeUnretainedValue() {
+            let dict = proxy as NSDictionary
+            hs_log(dict)
             CFReadStreamSetProperty(stream, CFStreamPropertyKey(rawValue: kCFStreamPropertyHTTPProxy), proxy)
         }
         return stream
@@ -143,11 +150,18 @@ extension HttpStream {
              * The HTTP headers won't be available.
              */
             var icy = ""
-            for i in 0..<10 {
+            for i in 0..<4 {
                 let buf = buffer.advanced(by: i).pointee
                 datas.append(buf)
             }
-            let data = Data(bytes: datas)
+            var data = Data(bytes: datas)
+            icy = String(data: data, encoding: .ascii) ?? ""
+            hs_log("icy:\(icy)")
+            for i in 4..<10 {
+                let buf = buffer.advanced(by: i).pointee
+                datas.append(buf)
+            }
+            data = Data(bytes: datas)
             icy = String(data: data, encoding: .ascii) ?? ""
             // This is an ICY stream, don't try to parse the HTTP headers
             if icy.lowercased() == "ICY 200 OK" { return }
@@ -179,7 +193,7 @@ extension HttpStream {
         if let name = icyNameString {
             let n = name as String
             _icyName = n
-            delegate?.streamMetaDataAvailable(metaData: [Keys.icecastStationName.rawValue : n])
+            delegate?.streamMetaDataAvailable(metaData: [Keys.icecastStationName.rawValue : Metadata.text(n)])
         }
         
         let ctype = CFHTTPMessageCopyHeaderFieldValue(response, Keys.contentType.cf)?.takeUnretainedValue()
@@ -284,8 +298,7 @@ extension HttpStream {
                                 _icyMetaData.removeAll()
                                 continue
                             }
-                            var metadataMap = [String : String]()
-                            
+                            var metadataMap = [String : Metadata]()
                             let tokens = metaData.components(separatedBy: ";")
                             for token in tokens {
                                 if let range = token.range(of: "='") {
@@ -295,10 +308,10 @@ extension HttpStream {
                                     let valueStart = token.index(token.startIndex, offsetBy: distance)
                                     let valueRange = Range(uncheckedBounds: (valueStart, token.endIndex))
                                     let value = token.substring(with: valueRange)
-                                    metadataMap[key] = value
+                                    metadataMap[key] = Metadata.text(value)
                                 }
                             }
-                            if let name = _icyName { metadataMap[Keys.icecastStationName.rawValue] = name }
+                            if let name = _icyName { metadataMap[Keys.icecastStationName.rawValue] = Metadata.text(name) }
                             dele.streamMetaDataAvailable(metaData: metadataMap)
                         }// _icyMetaData.count > 0
                         _icyMetaData.removeAll()
@@ -470,7 +483,9 @@ extension HttpStream {
                         hs._bytesRead += UInt64(bytesRead)
                         hs_log("Read \(bytesRead) bytes, total \(hs._bytesRead)\n")
                         hs.parseHttpHeadersIfNeeded(buffer: &httpReadBuffer, bufSize: bytesRead)
-                        
+                        if hs._icyStream == false && hs._id3Parser?.wantData() == true {
+                            hs._id3Parser?.feedData(data: &httpReadBuffer, numBytes: UInt32(bytesRead))
+                        }
                         if hs._icyStream {
                             hs_log("Parsing ICY stream\n")
                             hs.parseICYStream(buffers: &httpReadBuffer, bufSize: bytesRead)
@@ -497,6 +512,17 @@ extension HttpStream {
             default: break
             }
         }
+    }
+}
+
+// MARK: - ID3ParserDelegate
+extension HttpStream: ID3ParserDelegate {
+    func id3metaDataAvailable(metaData: [String : Metadata]) {
+        delegate?.streamMetaDataAvailable(metaData: metaData)
+    }
+    
+    func id3tagSizeAvailable(tag size: UInt32) {
+        delegate?.streamMetaDataByteSizeAvailable(sizeInBytes: size)
     }
 }
 // MARK: StreamInputProtocol
@@ -544,6 +570,7 @@ extension HttpStream: StreamInputProtocol {
     
     @discardableResult func open() -> Bool {
         contentLength = 0
+        _id3Parser?.reset()
         return open(Position())
     }
     

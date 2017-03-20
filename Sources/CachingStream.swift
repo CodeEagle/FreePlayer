@@ -80,19 +80,30 @@ extension CachingStream {
         _storeIdentifier = id
         _fileOutput = nil
         let config = StreamConfiguration.shared
-        guard let storeFolder = config.storeDirectory else { return false }
+        guard let storeFolder = config.storeDirectory else {
+            cs_log("no config.storeDirectory:\(config.storeDirectory)")
+            return false
+        }
+        
         let filePath = (storeFolder as NSString).appendingPathComponent(id)
         let metaDataPath = (storeFolder as NSString).appendingPathComponent(id + ".metadata")
         
         let buffer = filePath.withCString{ $0 }
         var b: stat = stat()
         let hasFile = stat(buffer, &b) == 0
-        if !hasFile { return false }
+        if !hasFile {
+            cs_log("no file:\(filePath) at:\(config.storeDirectory)")
+            return false
+        }
         
-        guard let url = createFileURL(with: filePath) else { return false }
+        guard let url = createFileURL(with: filePath) else {
+            cs_log("createFileURL:\(filePath) fail")
+            return false
+        }
         _fileUrl = url
         _metaDataUrl = createFileURL(with: metaDataPath)
         _fileStream.set(url: url)
+        cs_log("success")
         return true
     }
     
@@ -175,9 +186,7 @@ extension CachingStream: StreamInputProtocol {
         _useCache ? _fileStream.setScheduledInRunLoop(run: run) : _target.setScheduledInRunLoop(run: run)
     }
     
-    public func set(url: URL) {
-        _target.set(url: url)
-    }
+    public func set(url: URL) { _target.set(url: url) }
 }
 
 // MARK: - StreamInputDelegate
@@ -234,7 +243,7 @@ extension CachingStream: StreamInputDelegate {
         delegate?.streamErrorOccurred(errorDesc: errorDesc)
     }
     
-    public func streamMetaDataAvailable(metaData: [String: String]) {
+    public func streamMetaDataAvailable(metaData: [String: Metadata]) {
         delegate?.streamMetaDataAvailable(metaData: metaData)
     }
     

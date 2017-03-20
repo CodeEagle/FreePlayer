@@ -13,12 +13,18 @@ import MediaPlayer
         public var name = ""
         public var artist = ""
         public var album = ""
-        public var artwork = UIImage()
+        public var artwork = UIImage() {
+            didSet {
+                didSetImage()
+            }
+        }
         public var duration = 0
         public var playbackRate = Double()
         public var playbackTime = Double()
+        public var didSetImage: () -> () = {}
         private var _lock: OSSpinLock = OS_SPINLOCK_INIT
         private var _coverTask: URLSessionDataTask?
+        private var _backgroundTask = UIBackgroundTaskInvalid
         private init() { }
         
         var info: [String : Any] {
@@ -50,10 +56,10 @@ import MediaPlayer
         public func image(with url: String?) {
             guard let u = url, let r = URL(string: u) else { return }
             _coverTask?.cancel()
+            endBackgroundTask()
             DispatchQueue.global(qos: .userInteractive).async {
                 let request = URLRequest(url: r, cachePolicy: .useProtocolCachePolicy, timeoutInterval: 20)
                 if let d = URLCache.shared.cachedResponse(for: request)?.data, let image = UIImage(data: d)  {
-                    debug_log("cover from cache")
                     DispatchQueue.main.async {
                         self._lock.lock()
                         self.artwork = image
@@ -62,7 +68,9 @@ import MediaPlayer
                     }
                     return
                 }
+               self.startBackgroundTask()
                 let task = URLSession.shared.dataTask(with: request, completionHandler: { [weak self](data, resp, _) in
+                    self?.endBackgroundTask()
                     if let r = resp, let d = data {
                         let cre = CachedURLResponse(response: r, data: d)
                         URLCache.shared.storeCachedResponse(cre, for: request)
@@ -99,6 +107,19 @@ import MediaPlayer
             DispatchQueue.main.async {
                 MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
             }
+        }
+        
+        private func startBackgroundTask() {
+            endBackgroundTask()
+            _backgroundTask = UIApplication.shared.beginBackgroundTask(expirationHandler: {[weak self] in
+                self?.endBackgroundTask()
+            })
+        }
+        
+        private func endBackgroundTask() {
+            guard _backgroundTask != UIBackgroundTaskInvalid else { return }
+            UIApplication.shared.endBackgroundTask(_backgroundTask)
+            _backgroundTask = UIBackgroundTaskInvalid
         }
     }
 #endif

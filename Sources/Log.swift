@@ -67,7 +67,7 @@ public struct FPLogger {
     }
     
     public enum Module {
-        case audioQueue, audioStream, cachingStream, fileStream, httpStream, freePlayer
+        case audioQueue, audioStream, cachingStream, fileStream, httpStream, freePlayer, id3Parser
         var symbolize: String {
             switch self {
             case .audioQueue: return "🌈"
@@ -75,10 +75,11 @@ public struct FPLogger {
             case .httpStream: return "🌨"
             case .fileStream: return "🌤"
             case .cachingStream: return "❄️"
-            case .freePlayer: return "☄️"
+            case .freePlayer: return "🍄"
+            case .id3Parser: return "⚡️"
             }
         }
-        static var All: Set<Module> { return [.audioQueue, .audioStream, .httpStream, .fileStream, .cachingStream] }
+        static var All: Set<Module> { return [.audioQueue, .audioStream, .httpStream, .fileStream, .cachingStream, .freePlayer, .id3Parser] }
         
         func log(msg: Any, method: String = #function) {
             if shared._modules.isEmpty || shared._modules.contains(self) == false { return }
@@ -144,8 +145,23 @@ func fp_log(_ msg: Any..., method: String = #function) {
     FPLogger.Module.freePlayer.log(msg: msg, method: method)
 }
 
+func id3_log(_ msg: Any..., method: String = #function) {
+    FPLogger.Module.id3Parser.log(msg: msg, method: method)
+}
+
+
 func debug_log(_ msg: Any...) {
     #if DEBUG || ((arch(i386) || arch(x86_64)) && os(iOS))
         print(msg)
     #endif
+}
+
+
+func log_pointer(data: UnsafePointer<UInt8>, len: UInt32) {
+    var array = [UInt8]()
+    let l = Int(len)
+    for i in 0..<l {
+        array.append(data.advanced(by: i).pointee)
+    }
+    debug_log(array)
 }

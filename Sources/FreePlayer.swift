@@ -13,6 +13,7 @@ import AVFoundation
 #endif
 
 public final class FreePlayer {
+    public var maxRetryCount = 3
     public var onStateChange: ((AudioStreamState) -> Void)?
     public var onComplete: (() -> Void)?
     public var onFailure: ((AudioStreamError, String?) -> Void)?
@@ -31,9 +32,9 @@ public final class FreePlayer {
     fileprivate var _wasInterrupted = false
     fileprivate var _wasDisconnected = false
     fileprivate var _wasPaused = false
-    
-    fileprivate var _maxRetryCount = 3
+
     fileprivate var _retryCount = 0
+    fileprivate var _stopHandlerNetworkChange = false
 
     deinit {
         assert(Thread.isMainThread)
@@ -43,7 +44,10 @@ public final class FreePlayer {
         FreePlayer.removeIncompleteCache()
     }
     
-    public init() { addInteruptOb() }
+    public init() {
+        startReachability()
+        addInteruptOb()
+    }
     
     public convenience init(url target: URL) {
         self.init()
@@ -159,11 +163,11 @@ extension FreePlayer {
     
     public func stop() {
         assert(Thread.isMainThread)
-        self._audioStream?.close(withParser: true)
-        self.endBackgroundTask()
-        self._reachability?.stopNotifier()
-        self._reachability = nil
-        
+        _audioStream?.close(withParser: true)
+        endBackgroundTask()
+        _stopHandlerNetworkChange = true
+//        self._reachability?.stopNotifier()
+//        self._reachability = nil
     }
     
     public var volume: Float {
@@ -197,7 +201,7 @@ extension FreePlayer {
             if duration <= 0 { return }
             var offset = time / duration
             if offset > 1 { offset = 1 }
-            if offset < 1 { offset = 0 }
+            if offset < 0 { offset = 0 }
             self._audioStream?.resume()
             self._audioStream?.seek(to: offset)
             #if os(iOS)
@@ -359,16 +363,19 @@ extension FreePlayer {
             #endif
         case .buffering: _internetConnectionAvailable = true
         case .playing:
-            let duration = Int(ceil(durationInSeconds))
-            #if os(iOS)
-                if NowPlayingInfo.shared.duration != duration {
-                    NowPlayingInfo.shared.duration = duration
-                    NowPlayingInfo.shared.play(elapsedPlayback: Double(playbackPosition.timePlayed))
-                }
-            #endif
+            
             if StreamConfiguration.shared.automaticAudioSessionHandlingEnabled {
                 try? AVAudioSession.sharedInstance().setActive(true)
             }
+            #if os(iOS)
+                let duration = Int(ceil(durationInSeconds))
+                if NowPlayingInfo.shared.duration != duration {
+                    NowPlayingInfo.shared.duration = duration
+                }
+                if NowPlayingInfo.shared.playbackRate != 1 {
+                    NowPlayingInfo.shared.play(elapsedPlayback: Double(playbackPosition.timePlayed))
+                }
+            #endif
             if _retryCount > 0 {
                 _retryCount = 0
                 onStateChange?(.retryingSucceeded)
@@ -407,7 +414,7 @@ extension FreePlayer {
             return
         }
         
-        if _retryCount >= _maxRetryCount {
+        if _retryCount >= maxRetryCount {
             debug_log("☄️: Retry count \(_retryCount). Giving up.")
             DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: {[weak self] in
                 self?.notify(state: .retryingFailed)
@@ -420,11 +427,12 @@ extension FreePlayer {
             self?.notify(state: .retryingStarted)
             self?.play()
         })
-        
         _retryCount += 1
     }
     
+    
     private func handleStateChanged(info: Reachability) {
+        if _stopHandlerNetworkChange { return }
         DispatchQueue.main.async {
             let status = info.currentReachabilityStatus
             self._internetConnectionAvailable = status != .notReachable
@@ -443,6 +451,7 @@ extension FreePlayer {
     }
     
     fileprivate func startReachability() {
+        _stopHandlerNetworkChange = false
         guard _reachability == nil else { return }
         _reachability = Reachability(hostname: "www.baidu.com")
         _reachability?.whenReachable = {[weak self] info in
@@ -453,18 +462,21 @@ extension FreePlayer {
         }
         try? _reachability?.startNotifier()
     }
+    
+    func isWifiAvailable() -> Bool {
+        return _reachability?.isReachableViaWiFi ?? false
+    }
 }
 
 // MARK: - AudioStreamDelegate
 extension FreePlayer: AudioStreamDelegate {
     func audioStreamStateChanged(state: AudioStreamState) {
+        fp_log("state:\(state)")
         if #available(iOS 10.0, *) {
             RunLoop.current.perform {
                 self.notify(state: state)
             }
-        } else {
-            notify(state: state)
-        }
+        } else { notify(state: state) }
     }
     
     func audioStreamErrorOccurred(errorCode: AudioStreamError , errorDescription: String) {
@@ -475,12 +487,31 @@ extension FreePlayer: AudioStreamDelegate {
         }
     }
     
-    func audioStreamMetaDataAvailable(metaData: [String : String]) {
+    func audioStreamMetaDataAvailable(metaData: [String : Metadata]) {
         #if os(iOS)
-        if let name = metaData[HttpStream.Keys.icecastStationName.rawValue] {
-            NowPlayingInfo.shared.name = name
-            NowPlayingInfo.shared.update()
-        }
+            DispatchQueue.global(qos: .userInitiated).async {
+                var artist: String?
+                var title: String?
+                var cover: UIImage?
+                if let raw = metaData[HttpStream.Keys.icecastStationName.rawValue], case Metadata.text(let name) = raw {
+                    title = name
+                }
+                if StreamConfiguration.shared.autoFillID3InfoToNowPlayingCenter {
+                    if let raw = metaData[ID3Parser.MetaDataKey.title.rawValue], case Metadata.text(let t) = raw {
+                        title = t
+                    }
+                    if let raw = metaData[ID3Parser.MetaDataKey.artist.rawValue], case Metadata.text(let art) = raw {
+                        artist = art
+                    }
+                    if let raw = metaData[ID3Parser.MetaDataKey.cover.rawValue], case Metadata.data(let d) = raw {
+                        cover = UIImage(data: d)
+                    }
+                }
+                if let value = artist { NowPlayingInfo.shared.artist = value }
+                if let value = title { NowPlayingInfo.shared.name = value }
+                if let value = cover { NowPlayingInfo.shared.artwork = value }
+                NowPlayingInfo.shared.update()
+            }
         #endif
     }
     
@@ -489,7 +520,7 @@ extension FreePlayer: AudioStreamDelegate {
     }
     
     func bitrateAvailable() {
-        var config = StreamConfiguration.shared
+        let config = StreamConfiguration.shared
         
         guard config.usePrebufferSizeCalculationInSeconds == false else { return }
         
@@ -513,8 +544,8 @@ extension FreePlayer: AudioStreamDelegate {
             }
         }
         // Update the configuration
-        config.requiredInitialPrebufferedByteCountForContinuousStream = Int(bufferSize)
-        config.requiredInitialPrebufferedByteCountForNonContinuousStream = Int(bufferSize)
+        StreamConfiguration.shared.requiredInitialPrebufferedByteCountForContinuousStream = Int(bufferSize)
+        StreamConfiguration.shared.requiredInitialPrebufferedByteCountForNonContinuousStream = Int(bufferSize)
     }
 }
 

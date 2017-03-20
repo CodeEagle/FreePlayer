@@ -18,14 +18,30 @@ final class FileStream {
     fileprivate var _contentType: String?
     fileprivate var _position = Position()
     fileprivate var _fileReadBuffer: UnsafeMutablePointer<UInt8>?
+    fileprivate var _id3Parser: ID3Parser?
     deinit {
         close()
+        _id3Parser = nil
         let config = StreamConfiguration.shared
         _fileReadBuffer?.deallocate(capacity: Int(config.httpConnectionBufferSize))
     }
-    init() {}
+    
+    init() {
+        _id3Parser = ID3Parser()
+        _id3Parser?.delegate = self
+    }
 }
 
+// MARK: - ID3ParserDelegate
+extension FileStream: ID3ParserDelegate {
+    func id3metaDataAvailable(metaData: [String : Metadata]) {
+        delegate?.streamMetaDataAvailable(metaData: metaData)
+    }
+    
+    func id3tagSizeAvailable(tag size: UInt32) {
+        delegate?.streamMetaDataByteSizeAvailable(sizeInBytes: size)
+    }
+}
 // MARK: - StreamInputProtocol
 extension FileStream: StreamInputProtocol {
     
@@ -98,7 +114,10 @@ extension FileStream: StreamInputProtocol {
         return out()
     }
     
-    func open() -> Bool { return open(Position()) }
+    func open() -> Bool {
+        _id3Parser?.reset()
+        return open(Position())
+    }
     
     func close() {
         guard let readStream = _readStream else { return }
@@ -162,7 +181,11 @@ extension FileStream {
                         errorOccurred()
                     }
                     if bytesRead > 0, let buffer = fs._fileReadBuffer {
-                        fs.delegate?.streamHasBytesAvailable(data: buffer, numBytes: UInt32(bytesRead))
+                        let len = UInt32(bytesRead)
+                        fs.delegate?.streamHasBytesAvailable(data: buffer, numBytes: len)
+                        if fs._id3Parser?.wantData() == true {
+                            fs._id3Parser?.feedData(data: buffer, numBytes: len)
+                        }
                     }
                 }
             }

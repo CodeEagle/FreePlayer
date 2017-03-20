@@ -42,9 +42,9 @@ final class AudioQueue {
     
     var currentState: State {
         var s = State.unknown
-        OSSpinLockLock(&_mutex)
+        _mutex.lock()
         s = _state
-        OSSpinLockUnlock(&_mutex)
+        _mutex.unlock()
         return s
     }
     
@@ -163,7 +163,7 @@ extension AudioQueue {
         get { return _state }
         set {
             OSSpinLockLock(&_mutex)
-            if (_state == state) {
+            if (_state == newValue) {
                 OSSpinLockUnlock(&_mutex)
                 /* We are already in this state! */
                 return

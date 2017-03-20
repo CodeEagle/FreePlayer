@@ -13,6 +13,12 @@ import AVFoundation
 #endif
 public var FreePlayerVersion: Double = 1.0
 /** FreePlayer 配置单例 */
+/**
+ # 因为 StreamConfiguration.shared 是 struct
+ # 所以，不能这样赋值（会触发 copy on write）
+     var shared = StreamConfiguration.shared  
+     shared.xxx = xxx
+ */
 public struct StreamConfiguration {
     
     public static var shared: StreamConfiguration = StreamConfiguration()
@@ -51,7 +57,7 @@ public struct StreamConfiguration {
     /** 缓存目录 */
     public var cacheDirectory = NSTemporaryDirectory()
     /** 存储目录 */
-    public var storeDirectory: String?
+    public var storeDirectory: String? 
     /** 自定义 http header 字典 */
     public var predefinedHttpHeaderValues: [String : String] = [:]
     /** 使用时间数计算预缓冲大小 */
@@ -59,17 +65,19 @@ public struct StreamConfiguration {
     /** 使用帧数计算预缓冲大小 */
     public var usePrebufferSizeCalculationInPackets = Bool()
     /** 缓存播放文件 */
-    public var cacheEnabled = Bool()
+    public var cacheEnabled = false
     /** 使用缓存 seeking */
-    public var seekingFromCacheEnabled = Bool()
+    public var seekingFromCacheEnabled = false
     /** 自动控制 AudioSession */
-    public var automaticAudioSessionHandlingEnabled = Bool()
+    public var automaticAudioSessionHandlingEnabled = false
     /** 开启 Time And Pitch Conversion */
-    public var enableTimeAndPitchConversion = Bool()
+    public var enableTimeAndPitchConversion = false
     /** 需要内容类型检查 */
-    public var requireStrictContentTypeChecking = Bool()
+    public var requireStrictContentTypeChecking = false
     /** 需要网络播放检查 */
-    public var requireNetworkPermision = Bool()
+    public var requireNetworkPermision = true
+    /** 自动填充ID3的信息到 NowPlayingCenter */
+    public var autoFillID3InfoToNowPlayingCenter = false
     
     private init() {
         #if (arch(i386) || arch(x86_64)) && os(iOS)//iPhone Simulator
@@ -97,7 +105,6 @@ public struct StreamConfiguration {
         automaticAudioSessionHandlingEnabled = true
         enableTimeAndPitchConversion = false
         requireStrictContentTypeChecking = true
-        requireNetworkPermision = true
         maxDiskCacheSize = 256000000 // 256 MB
         usePrebufferSizeCalculationInSeconds = true
         usePrebufferSizeCalculationInPackets = false

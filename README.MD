@@ -16,7 +16,7 @@ Features
 
 - [x] Prepared for tough network conditions: adjustable buffer sizes, stream pre-buffering and restart on failures，restart on not full content streamed when end of stream
 
-- [ ] Metadata support: ShoutCast metadata, IDv2 tags
+- [x] Metadata support: ShoutCast metadata, IDv2 tags
 
 - [x] Local disk caching: user only needs to stream a file once and after that it can be played from a local cache
 
@@ -28,6 +28,6 @@ Features
 
 - [ ] Access the PCM audio samples: as an example, a visualizer is included
 
-- [x] logging to file supported
+- [x] custom logging module and logging into file supported
 
 - [ ] FLAC support
