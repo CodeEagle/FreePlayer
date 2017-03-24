@@ -70,7 +70,7 @@ extension CachingStream {
         let bytesRead = CFReadStreamRead(stream, &buf, 1024)
         if bytesRead > 0 {
             guard let type = String(bytes: buf, encoding: .utf8) else { return }
-            cs_log("Setting the content type [\(type)] of the file stream based on the meta data\n")
+            cs_log("Setting the content type [\(type)] of the file stream based on the meta data")
             _fileStream.contentType = contentType
         }
         CFReadStreamClose(stream)
@@ -142,15 +142,15 @@ extension CachingStream: StreamInputProtocol {
             _cacheMetaDataWritten = false
             
             readMetaData()
-            cs_log("Playing file from cache\n")
-            cs_log(file)
+            cs_log("Playing file from cache")
+            cs_log("file:\(file)")
             status = _fileStream.open(position)
         } else {
             _cacheable = false
             _writable  = false
             _useCache  = false
             _cacheMetaDataWritten = false
-            cs_log("File not cached\n")
+            cs_log("File not cached")
             status = _target.open(position)
         }
         return status
@@ -165,7 +165,7 @@ extension CachingStream: StreamInputProtocol {
             _useCache  = true
             _cacheMetaDataWritten = false
             readMetaData()
-            cs_log("Playing file from cache\n")
+            cs_log("Playing file from cache")
             status = _fileStream.open()
         } else {
             _cacheable = true
@@ -205,7 +205,7 @@ extension CachingStream: StreamInputDelegate {
         if _cacheable {
             guard numBytes > 0 else { return }
             if _fileOutput == nil, let url = _fileUrl  {
-                cs_log("Caching started for stream\n")
+                cs_log("Caching started for stream")
                 _fileOutput = StreamOutputManager(fileURL: url)
                 _writable = true
             }
@@ -223,7 +223,7 @@ extension CachingStream: StreamInputDelegate {
             // We only write the meta data if the stream was successfully streamed.
             // In that way we can use the meta data as an indicator that there is a file to stream.
             if !_cacheMetaDataWritten, let url = _metaDataUrl  {
-                cs_log("Writing the meta data\n")
+                cs_log("Writing the meta data")
                 let contentType = _target.contentType
                 do {
                     try contentType.data(using: .utf8)?.write(to: url)

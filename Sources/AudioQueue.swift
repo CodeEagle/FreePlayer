@@ -162,14 +162,14 @@ extension AudioQueue {
     var state: State {
         get { return _state }
         set {
-            OSSpinLockLock(&_mutex)
+            _mutex.lock()
             if (_state == newValue) {
-                OSSpinLockUnlock(&_mutex)
+                _mutex.unlock()
                 /* We are already in this state! */
                 return
             }
             _state = newValue
-            OSSpinLockUnlock(&_mutex)
+            _mutex.unlock()
             delegate?.audioQueueStateChanged(state: state)
         }
     }
@@ -227,7 +227,7 @@ extension AudioQueue {
             return
         }
         // this is called by audio file stream when it finds packets of audio
-        aq_log("got data.  bytes: \(inNumberBytes)  packets: \(inNumberPackets)")
+//        aq_log("got data.  bytes: \(inNumberBytes)  packets: \(inNumberPackets)")
         /* Place each packet into a buffer and then send each buffer into the audio
          queue */
         let total = Int(inNumberPackets)
@@ -241,7 +241,6 @@ extension AudioQueue {
             }
             
             let config = StreamConfiguration.shared
-            aq_log("enter")
             
             let packetSize = desc.mDataByteSize
             let bufferSize = UInt32(config.bufferSize)
@@ -355,10 +354,14 @@ extension AudioQueue {
 extension AudioQueue {
     
     fileprivate func cleanup() {
+        
+        _mutex.lock()
         guard let queue = _outAQ else {
+            _mutex.unlock()
             aq_log("warning: attempt to cleanup an uninitialized audio queue. return.")
             return
         }
+        _mutex.unlock()
         let config = StreamConfiguration.shared
         let cstate = currentState
         if cstate != .idle {
@@ -368,9 +371,10 @@ extension AudioQueue {
             AudioQueueStop(queue, true)
             state = .idle
         }
-        
+        _mutex.lock()
         if (AudioQueueDispose(queue, true) != 0) { aq_log("AudioQueueDispose failed!"); }
         _outAQ = nil
+        _mutex.unlock()
         _fillBufferIndex = 0
         _bytesFilled = 0
         _packetsFilled = 0
@@ -388,7 +392,7 @@ extension AudioQueue {
         
         let config = StreamConfiguration.shared
         
-        aq_log("enter")
+//        aq_log("enter")
         
         pthread_mutex_lock(&_bufferInUseMutex)
         
@@ -429,7 +433,7 @@ extension AudioQueue {
         
         // wait until next buffer is not in use
         while (_bufferInUse?[Int(_fillBufferIndex)] == true) {
-            aq_log("waiting for buffer \(_fillBufferIndex)")
+//            aq_log("waiting for buffer \(_fillBufferIndex)")
             pthread_cond_wait(&_bufferFreeCondition, &_bufferInUseMutex)
         }
         pthread_mutex_unlock(&_bufferInUseMutex)
@@ -481,18 +485,18 @@ extension AudioQueue {
             
             audioQueue._bufferInUse?[bufIndex] = false
             audioQueue._buffersUsed -= 1
-            aq_log("signaling buffer free for inuse \(bufIndex)....")
+//            aq_log("signaling buffer free for inuse \(bufIndex)....")
             pthread_cond_signal(&audioQueue._bufferFreeCondition)
-            aq_log("signal sent!")
+//            aq_log("signal sent!")
             if audioQueue._buffersUsed == 0 {
-                aq_log("audioQueueOutputCallback: unlock 2")
+//                aq_log("audioQueueOutputCallback: unlock 2")
                 pthread_mutex_unlock(&audioQueue._bufferInUseMutex)
                 audioQueue.delegate?.audioQueueBuffersEmpty()
             } else {
                 pthread_mutex_unlock(&audioQueue._bufferInUseMutex)
                 audioQueue.delegate?.audioQueueFinishedPlayingPacket()
             }
-            aq_log("audioQueueOutputCallback: unlock")
+//            aq_log("audioQueueOutputCallback: unlock")
         }
     }
 }

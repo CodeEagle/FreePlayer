@@ -48,6 +48,9 @@ final class HttpStream {
     fileprivate var _icyReadBuffer:[UInt8]?
     fileprivate var _httpReadBuffer: [UInt8]?
     
+    fileprivate var _auth: CFHTTPAuthentication?
+    fileprivate var _credentials: [String : String]?
+    
     deinit {
         close()
         _icyHeaderLines.removeAll()
@@ -109,6 +112,7 @@ extension HttpStream {
     
     @discardableResult func createReadStream(from url: URL?) -> CFReadStream? {
         guard let u = url else { return nil }
+        
         let config = StreamConfiguration.shared
         let request = CFHTTPMessageCreateRequest(kCFAllocatorDefault, Keys.get.cf, u as CFURL, kCFHTTPVersion1_1).takeUnretainedValue()
         if let ua = config.userAgent {
@@ -125,14 +129,35 @@ extension HttpStream {
             hs_log("Setting predefined HTTP header[\(key) : \(value)]")
             CFHTTPMessageSetHeaderFieldValue(request, key as CFString, value as CFString)
         }
+        if let authentication = _auth, let info = _credentials {
+            let credentials = info as CFDictionary
+            if CFHTTPMessageApplyCredentialDictionary(request, authentication, credentials, nil) == false {
+                delegate?.streamErrorOccurred(errorDesc: "add authentication fail")
+                return nil
+            }
+            hs_log("digest authentication add success")
+        }
         let s = CFReadStreamCreateForHTTPRequest(kCFAllocatorDefault, request)
         let stream = s.takeRetainedValue()
         CFReadStreamSetProperty(stream, CFStreamPropertyKey(rawValue: kCFStreamNetworkServiceType), kCFStreamNetworkServiceTypeBackground)
         CFReadStreamSetProperty(stream, CFStreamPropertyKey(rawValue: kCFStreamPropertyHTTPShouldAutoredirect), kCFBooleanTrue)
-        if let proxy = CFNetworkCopySystemProxySettings()?.takeUnretainedValue() {
-            let dict = proxy as NSDictionary
-            hs_log(dict)
-            CFReadStreamSetProperty(stream, CFStreamPropertyKey(rawValue: kCFStreamPropertyHTTPProxy), proxy)
+        if config.usingCustomProxy {
+            var dict: [String : Any] = [:]
+            dict[kCFStreamPropertyHTTPSProxyHost as String] = config.customProxyHttpHost
+            dict[kCFStreamPropertyHTTPSProxyPort as String] = config.customProxyHttpPort
+            dict[kCFNetworkProxiesHTTPEnable as String] = 1
+            dict[kCFNetworkProxiesHTTPPort as String] = config.customProxyHttpPort
+            dict[kCFNetworkProxiesHTTPProxy as String] = config.customProxyHttpHost
+            let proxy = dict as CFDictionary
+            if false == CFReadStreamSetProperty(stream, CFStreamPropertyKey(rawValue: kCFStreamPropertyHTTPProxy), proxy) {
+                hs_log("setting custom proxy not success")
+            }
+        } else {
+            if let proxy = CFNetworkCopySystemProxySettings()?.takeUnretainedValue() {
+                let dict = proxy as NSDictionary
+                hs_log("system proxy:\(dict)")
+                CFReadStreamSetProperty(stream, CFStreamPropertyKey(rawValue: kCFStreamPropertyHTTPProxy), proxy)
+            }
         }
         return stream
     }
@@ -156,7 +181,6 @@ extension HttpStream {
             }
             var data = Data(bytes: datas)
             icy = String(data: data, encoding: .ascii) ?? ""
-            hs_log("icy:\(icy)")
             for i in 4..<10 {
                 let buf = buffer.advanced(by: i).pointee
                 datas.append(buf)
@@ -167,7 +191,7 @@ extension HttpStream {
             if icy.lowercased() == "ICY 200 OK" { return }
         }
         
-        hs_log("A regular HTTP stream\n")
+        hs_log("A regular HTTP stream")
         
         guard let resp = CFReadStreamCopyProperty(readStream, CFStreamPropertyKey(rawValue: kCFStreamPropertyHTTPResponseHeader)) else { return }
         let response = resp as! CFHTTPMessage
@@ -199,8 +223,9 @@ extension HttpStream {
         let ctype = CFHTTPMessageCopyHeaderFieldValue(response, Keys.contentType.cf)?.takeUnretainedValue()
         contentType = (ctype as String?) ?? ""
         hs_log("\(Keys.contentType.rawValue): \(contentType)")
-        
+        hs_log("response:\(response)")
         let status200 = statusCode == 200
+        let status401 = statusCode == 401
         let clen = CFHTTPMessageCopyHeaderFieldValue(response, Keys.contentLength.cf)?.takeUnretainedValue()
         if let len = clen, status200 {
             contentLength = UInt64(CFStringGetIntValue(len))
@@ -209,20 +234,38 @@ extension HttpStream {
         if status200 || statusCode == 206 {
             delegate?.streamIsReadyRead()
         } else {
-            delegate?.streamErrorOccurred(errorDesc: "HTTP response code \(statusCode)")
-        } 
+            if status401 {
+                let responseHeader = CFReadStreamCopyProperty(readStream, CFStreamPropertyKey(rawValue: kCFStreamPropertyHTTPResponseHeader)) as! CFHTTPMessage
+                // Get the authentication information from the response.
+                let authentication = CFHTTPAuthenticationCreateFromResponse(nil, responseHeader).takeUnretainedValue()
+                // <CFHTTPAuthentication 0x1703e1100>{state = InProgress; scheme = Digest, forProxy = false}
+                if CFHTTPAuthenticationRequiresUserNameAndPassword(authentication) {
+                    let conf = StreamConfiguration.shared
+                    var credentials: [String : String] = [:]
+                    credentials[kCFHTTPAuthenticationUsername as String] = conf.customProxyUsername
+                    credentials[kCFHTTPAuthenticationPassword as String] = conf.customProxyPassword
+                    _credentials = credentials
+                    _auth = authentication
+                }
+                hs_log("did recieve authentication request")
+                resetOpenTimer(needResetReadedFlag: true)
+                startOpenTimer(0.5)
+            } else {
+                delegate?.streamErrorOccurred(errorDesc: "HTTP response code \(statusCode)")
+            }
+        }
     }
     
     func parseICYStream(buffers: UnsafeMutablePointer<UInt8>, bufSize: Int) {
-        hs_log("Parsing an IceCast stream, received \(bufSize) bytes\n")
+        hs_log("Parsing an IceCast stream, received \(bufSize) bytes")
         var offset = 0
         var bytesFound = 0
         func readICYHeader() {
-            hs_log("ICY headers not read, reading\n")
+            hs_log("ICY headers not read, reading")
             while offset < bufSize {
                 let buffer = buffers.advanced(by: offset).pointee
                 let bufferString = String(Character(UnicodeScalar(buffer)))
-                if bufferString == "\n", _icyHeaderCR {
+                if bufferString == "", _icyHeaderCR {
                     if bytesFound > 0 {
                         var bytes: [UInt8] = []
                         let total = offset - bytesFound
@@ -403,7 +446,6 @@ extension HttpStream {
                 } else {
                     hs.open()
                 }
-                
             } else {
                 if let timer = hs._openTimer { /* do not reopen reset count */
                     CFRunLoopTimerInvalidate(timer)
@@ -438,7 +480,7 @@ extension HttpStream {
                 hs.resetOpenTimer(needResetReadedFlag: true)
                 hs._isReadedData = true
                 hs.errorDescription = nil
-                hs_log("reopen debug: HTTP stream did receive data\n")
+                hs_log("reopen debug: HTTP stream did receive data")
                 
                 if hs._httpReadBuffer == nil {
                     hs._httpReadBuffer = Array(repeating: 0, count: Int(config.httpConnectionBufferSize))
@@ -470,7 +512,7 @@ extension HttpStream {
                             var recoveryPosition: Position = Position()
                             recoveryPosition.start = currentPosition.start + hs._bytesRead
                             recoveryPosition.end = hs.contentLength
-                            hs_log("Recovering HTTP stream, start \(recoveryPosition.start)\n")
+                            hs_log("Recovering HTTP stream, start \(recoveryPosition.start)")
                             hs.resetOpenTimer(needResetReadedFlag: true)
                             hs.open(recoveryPosition)
                             break
@@ -481,24 +523,28 @@ extension HttpStream {
                     
                     if bytesRead > 0 {
                         hs._bytesRead += UInt64(bytesRead)
-                        hs_log("Read \(bytesRead) bytes, total \(hs._bytesRead)\n")
+                        hs_log("Read \(bytesRead) bytes, total \(hs._bytesRead)")
                         hs.parseHttpHeadersIfNeeded(buffer: &httpReadBuffer, bufSize: bytesRead)
                         if hs._icyStream == false && hs._id3Parser?.wantData() == true {
                             hs._id3Parser?.feedData(data: &httpReadBuffer, numBytes: UInt32(bytesRead))
                         }
                         if hs._icyStream {
-                            hs_log("Parsing ICY stream\n")
+                            hs_log("Parsing ICY stream")
                             hs.parseICYStream(buffers: &httpReadBuffer, bufSize: bytesRead)
                         } else {
-                            hs_log("Not an ICY stream; calling the delegate back\n")
+//                            hs_log("Not an ICY stream; calling the delegate back")
                             hs.delegate?.streamHasBytesAvailable(data: &httpReadBuffer, numBytes: UInt32(bytesRead))
                         }
                     }
                 }
             }
             func endEncountered() {
+                if let myResponse = CFReadStreamCopyProperty(stream, CFStreamPropertyKey(rawValue: kCFStreamPropertyHTTPResponseHeader)) {
+                    let code = CFHTTPMessageGetResponseStatusCode(myResponse as! CFHTTPMessage)
+                    if code == 401 { return }
+                }
                 if hs._bytesRead < hs.contentLength {
-                    hs_log("HTTP stream endEncountered when not all content[\(hs.contentLength)] stream, restart with postion \(hs._bytesRead)\n")
+                    hs_log("HTTP stream endEncountered when not all content[\(hs.contentLength)] stream, restart with postion \(hs._bytesRead)")
                     hs.startOpenTimer(0.5)
                 } else {
                     hs.resetOpenTimer(needResetReadedFlag: true)
@@ -531,7 +577,10 @@ extension HttpStream: StreamInputProtocol {
     @discardableResult func open(_ position: Position) -> Bool {
         let this = UnsafeMutableRawPointer.voidPointer(from: self)
         var ctx = CFStreamClientContext(version: 0, info: this, retain: nil, release: nil, copyDescription: nil)
-        if _readStream != nil { return false }/* Already opened a read stream, return */
+        if _readStream != nil {
+            as_log("Already opened a read stream, return")
+            return false
+        }/* Already opened a read stream, return */
         /* Reset state */
         self.position = position
         _readPending = false
@@ -550,7 +599,10 @@ extension HttpStream: StreamInputProtocol {
         _metaDataBytesRemaining = 0
         _bytesRead = position.start
         
-        guard let stream = createReadStream(from: _url) else { return false }
+        guard let stream = createReadStream(from: _url) else {
+            as_log("createReadStream fail")
+            return false
+        }
         _readStream = stream
         let flags = CFStreamEventType.hasBytesAvailable.rawValue | CFStreamEventType.endEncountered.rawValue | CFStreamEventType.errorOccurred.rawValue
         if CFReadStreamSetClient(stream, flags, HttpStream.readCallBack, &ctx) == false { return false }
@@ -558,6 +610,7 @@ extension HttpStream: StreamInputProtocol {
         if CFReadStreamOpen(stream) == false {/* Open failed: clean */
             CFReadStreamSetClient(stream, 0, nil, nil)
             setScheduledInRunLoop(run: false)
+            as_log("CFReadStreamOpen fail")
             return false
         }
         if _reopenTimes < _maxRetryCount { /* try reopen */

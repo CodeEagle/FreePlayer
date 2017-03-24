@@ -83,7 +83,7 @@ public final class FreePlayer {
     }
     
     fileprivate func reset() {
-        _audioStream?.clean()
+        _audioStream?.forceStop = true
         _audioStream = AudioStream()
         _audioStream?.delegate = self
         _audioStream?.networkPermisionHandler = networkPermisionHandler
@@ -104,7 +104,7 @@ public final class FreePlayer {
                 do {
                     try AVAudioSession.sharedInstance().setCategory(AVAudioSessionCategoryPlayback)
                 } catch {
-                    fp_log(error)
+                    fp_log("error:\(error)")
                 }
             }
         #endif
@@ -160,14 +160,13 @@ extension FreePlayer {
         audio.open()
         startReachability()
     }
-    
+
     public func stop() {
         assert(Thread.isMainThread)
-        _audioStream?.close(withParser: true)
+        _audioStream?.forceStop = true
+        _audioStream?.clean()
         endBackgroundTask()
         _stopHandlerNetworkChange = true
-//        self._reachability?.stopNotifier()
-//        self._reachability = nil
     }
     
     public var volume: Float {
@@ -243,7 +242,10 @@ extension FreePlayer {
         guard let audio = _audioStream else { return 0 }
         let length = Float(audio.contentLength)
         let read = Float(audio.bytesReceived)
-        return length > 0 ? read / length : 0
+        var final = length > 0 ? read / length : 0
+        if final > 1 { final = 1 }
+        if final < 0 { final = 0 }
+        return final
     }
     
     public var outputFileURL: URL? {

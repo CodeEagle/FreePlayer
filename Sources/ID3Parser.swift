@@ -38,7 +38,9 @@ final class ID3Parser {
     fileprivate var _coverArt: Data?
     fileprivate var _lock: OSSpinLock = OS_SPINLOCK_INIT
     fileprivate var _parsing = false
-    fileprivate var _queue = DispatchQueue(label: "ac")
+    fileprivate var _lastData: Data?
+    fileprivate var _queue = DispatchQueue(label: "com.selfstudio.freeplayer.idrparser")
+    
     fileprivate var _thread: pthread_t?
     
     enum State {
@@ -57,10 +59,7 @@ final class ID3Parser {
         static var comment: Int  { return 30 }
         static var genre: Int  { return 4 }
     }
-    init() {
-        
-
-    }
+    init() { }
 }
 
 extension ID3Parser {
@@ -71,7 +70,6 @@ extension ID3Parser {
         let pointer = _tagData.withUnsafeMutableBytes({ (item: UnsafeMutablePointer<UInt8>) in
             return item
         }).advanced(by: Int(pos))
-        
         let size = framesize - 1
         return CFStringCreateWithBytes(kCFAllocatorDefault, pointer, Int(size), encoding, byteOrderMark)  as String
     }
@@ -101,9 +99,10 @@ extension ID3Parser {
             if  self._state == .tagParsed  { return }
             if self._parsing { return }
             self._bytesReceived += numBytes
-            id3_log("received \(numBytes) bytes, total bytes \(self._bytesReceived)")
+//            id3_log("received \(numBytes) bytes, total bytesReceived \(self._bytesReceived)")
+            let dat = Data(bytes: data, count: Int(numBytes))
+            _lastData = dat
             if self._state != .notID3V2 {
-                let dat = Data(bytes: data, count: Int(numBytes))
                 self._tagData.append(dat)
             }
             var canParseFrames = false
@@ -112,10 +111,19 @@ extension ID3Parser {
             } else if self._state == .parseFrames {
                 canParseFrames = true
             } else if self._state == .notID3V2 {
-                let dat = Data(bytes: data, count: Int(numBytes))
-                let len = dat.count
+                var realData = dat
+                var len = dat.count
+                if len < 128 , let d = _lastData {
+                    id3_log("append last data")
+                    realData = d + dat
+                    len = realData.count
+                }
+                if len < 128 {
+                    id3_log("try parser id3v1 but len:\(len) to short")
+                    return
+                }
                 let start = len - 128
-                let v1 = dat[start..<len]
+                let v1 = realData[start..<len]
                 let tag = v1.map({$0})[0..<3]
                 let raw = String(bytes: tag, encoding: .ascii)
                 if raw == "TAG" {
@@ -133,12 +141,16 @@ extension ID3Parser {
     private func dealV1(with data: [UInt8]) {
         _tagSize = 128
         id3_log("tag size: \(_tagSize)")
+        if StreamConfiguration.shared.autoFillID3InfoToNowPlayingCenter == false { return }
         delegate?.id3tagSizeAvailable(tag: _tagSize)
         let total = [ID3V1Length.header, ID3V1Length.title, ID3V1Length.artist, ID3V1Length.album, ID3V1Length.year, ID3V1Length.comment]
         var offset = 0
         var end = 0
         for (i, len) in total.enumerated() {
-            if i == 0 { continue }
+            if i == 0 {
+                offset += len
+                continue
+            }
             end = len + offset
             let t = offset..<end
             let range = data[t].flatMap({$0})
@@ -183,7 +195,7 @@ extension ID3Parser {
         let sub = _tagData[0...2]
         let content = String(bytes: sub, encoding: .ascii)
         if content != "ID3" {
-            id3_log("Not an ID3 tag, bailing out")
+            id3_log("Not an ID3v2 tag, bailing out")
             setState(state: .notID3V2)
             return false
         }
@@ -229,7 +241,7 @@ extension ID3Parser {
     private func parseFrames() {
         // Do we have enough data to parse the frames?
         if _tagData.count < Int(_tagSize) {
-            id3_log("Not enough data received for parsing, have \(_tagData.count) bytes, need \(_tagSize) bytes\n")
+            id3_log("Not enough data received for parsing, have \(_tagData.count) bytes, need \(_tagSize) bytes")
             DispatchQueue.main.async {
                 self._parsing = false
             }
@@ -326,21 +338,47 @@ extension ID3Parser {
                 }
                 dataPos += imageType.count + 1
                 let type = String(bytes: imageType, encoding: .utf8)
-                if type == "image/jpeg" || type == "image/png" {
+                let jpeg = type == "image/jpeg"
+                let png = type == "image/png"
+                if  jpeg || png {
 //                  Skip the image description
-                    var nextByte = _tagData[dataPos]
-                    while nextByte == 0 {
+                    var startPos = dataPos
+                    let totalCount = _tagData.count - 2
+                    while dataPos < totalCount {
+                        let first = _tagData[dataPos]
+                        let second = _tagData[dataPos + 1]
+                        if jpeg {
+                            if first == 0xFF, second == 0xD8 {
+                                startPos = dataPos
+                                break
+                            }
+                        } else if png, dataPos + 3 < _tagData.count - 1{
+                            let thrid = _tagData[dataPos + 2]
+                            let forth = _tagData[dataPos + 3]
+                            if first == 0x89, second == 0x50, thrid == 0x4E, forth == 0x47 {
+                                startPos = dataPos
+                                break
+                            }
+                        }
                         dataPos += 1
-                        nextByte = _tagData[dataPos]
                     }
                     id3_log("Image type \(type), parsing, dataPos:\(dataPos)")
                     if _majorVersion == 3 {
                         framesize = Int((i << 24) + (ii << 16) + (iii << 8) + iv)
+                        id3_log("framesize change due to _majorVersion 3 :\(framesize))")
                     }
-                    let coverArtSize = framesize - (dataPos - pos)
-                    let start = _tagData.startIndex.advanced(by: dataPos)
+                    let coverArtSize = framesize - (startPos - pos)
+                    id3_log("image size:\(coverArtSize)")
+                    let start = _tagData.startIndex.advanced(by: startPos)
                     let end = start.advanced(by: coverArtSize)
-                    _coverArt = _tagData.subdata(in: Range(uncheckedBounds: (start, end)))
+                    let d = _tagData.subdata(in: Range(uncheckedBounds: (start, end)))
+                    _coverArt = d
+                    #if DEBUG
+                        let startI = d.startIndex
+                        let endI = d.startIndex.advanced(by: 10)
+                        let prefix = d.subdata(in: Range(uncheckedBounds: (startI, endI))).map{$0}
+                        id3_log("_coverArt, prefix 10 bit:\(prefix)")
+                    #endif
                 } else {
                     id3_log("\(type) is an unknown type for image data, skipping")
                 }

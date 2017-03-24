@@ -74,6 +74,7 @@
 /* Begin PBXFileReference section */
 		103376711E5A813800482B10 /* Extension.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Extension.swift; sourceTree = "<group>"; };
 		1048351F1E5D5CA400CED749 /* Log.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Log.swift; sourceTree = "<group>"; };
+		104F280D1E84CB5800E2707F /* README.MD */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.MD; sourceTree = "<group>"; };
 		1057B4EC1E66CCB3001CDFA0 /* FreePlayer+MPPlayingCenter.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "FreePlayer+MPPlayingCenter.swift"; sourceTree = "<group>"; };
 		106086401E5BEFD700A6F7CB /* HttpStream.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = HttpStream.swift; sourceTree = "<group>"; };
 		106086421E5BEFE400A6F7CB /* CachingStream.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = CachingStream.swift; sourceTree = "<group>"; };
@@ -176,6 +177,7 @@
 		10A64BF31E593C81004F77BC = {
 			isa = PBXGroup;
 			children = (
+				104F280D1E84CB5800E2707F /* README.MD */,
 				10A64C171E593C8F004F77BC /* Sources */,
 				10A64BFF1E593C81004F77BC /* FreePlayer */,
 				10A64C0A1E593C81004F77BC /* FreePlayerTests */,

@@ -9,6 +9,7 @@ why?
 
 Features
 ---
+- [x] Digest(Tested), Basic(not tested) proxy support 
 
 - [x] CPU-friendly design(4% - 6%)
 

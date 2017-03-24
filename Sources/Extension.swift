@@ -66,7 +66,7 @@ extension OSStatus {
             char = char/256
         }
         let humanMsg = humanErrorMessage(from: result)
-        let msg = "\n{\n file: \(file):\(line),\n function: \(method),\n operation: \(operation),\n message: \(humanMsg)\n}\n"
+        let msg = "\n{\n file: \(file):\(line),\n function: \(method),\n operation: \(operation),\n message: \(humanMsg)\n}"
         print(msg)
     }
 }

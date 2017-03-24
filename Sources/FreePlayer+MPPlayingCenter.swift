@@ -10,7 +10,11 @@ import MediaPlayer
 #if os(iOS)
     public final class NowPlayingInfo {
         public static var shared = NowPlayingInfo()
-        public var name = ""
+        public var name = "" {
+            didSet {
+                FPLogger.write(msg: "🎹:\(name)")
+            }
+        }
         public var artist = ""
         public var album = ""
         public var artwork = UIImage() {

@@ -72,9 +72,10 @@ final class AudioStream {
     fileprivate var _fileOutput: StreamOutputManager?
     fileprivate var _fileOutputURL: URL?
     
-    fileprivate var _queuedHead: QueuedPacket?
+    fileprivate weak var _queuedHead: QueuedPacket?
     fileprivate weak var _queuedTail: QueuedPacket?
     fileprivate weak var _playPacket: QueuedPacket?
+    fileprivate var _packetSets: Set<QueuedPacket> = []
     fileprivate var _processedPackets: [UnsafeMutableRawPointer?] = []
     fileprivate var _packetsList: UnsafeMutablePointer<AudioStreamPacketDescription>?
     
@@ -120,6 +121,8 @@ final class AudioStream {
     
     fileprivate var _streamStateLock: OSSpinLock = OS_SPINLOCK_INIT
     fileprivate var _packetQueueLock: OSSpinLock = OS_SPINLOCK_INIT
+    var forceStop = false
+    fileprivate var _cleaning = false
     
     deinit {
         assert(Thread.isMainThread)
@@ -147,6 +150,9 @@ final class AudioStream {
     }
     
     func clean() {
+        _cleaning = true
+        _decodeTimer?.cancel()
+        _decodeTimer = nil
         _increaseDisplayLink.invalidate()
         _streamStateLock.lock()
         _decoderShouldRun = false
@@ -155,10 +161,10 @@ final class AudioStream {
             _decodeRunLoop = nil
         }
         _streamStateLock.unlock()
-        close(withParser: true)
         _outputBuffer.removeAll()
         _inputStream = nil
         _fileOutput = nil
+        close(withParser: true)
     }
 }
 // MARK: Volume Fade in and out
@@ -197,7 +203,10 @@ extension AudioStream {
         let timer = DispatchSource.makeTimerSource(flags: DispatchSource.TimerFlags(rawValue: 0), queue: queue)
         let pageStepTime: DispatchTimeInterval = .milliseconds(20)
         timer.scheduleRepeating(deadline: .now() + pageStepTime, interval: pageStepTime)
-        timer.setEventHandler(handler: {[weak self] in self?.decodeloopHandler() })
+        timer.setEventHandler(handler: {[weak self] in
+            guard let sself = self, sself._cleaning == false else { return }
+            sself.decodeloopHandler()
+        })
         timer.resume()
         _decodeQueue = queue
         _decodeTimer = timer
@@ -256,7 +265,7 @@ extension AudioStream {
         var outputBufferList = AudioBufferList(mNumberBuffers: 1, mBuffers: listItem)
         var ioOutputDataPackets = _outputBufferSize / _dstFormat.mBytesPerPacket
         
-        as_log("calling AudioConverterFillComplexBuffer")
+//        as_log("calling AudioConverterFillComplexBuffer")
         _packetQueueLock.lock()
         if _numPacketsToRewind > 0 {
             as_log("Rewinding \(_numPacketsToRewind) packets")
@@ -523,25 +532,28 @@ fileprivate extension AudioStream {
     
     func cleanupCachedData() {
         _streamStateLock.lock()
-        if _decoderShouldRun {
-            as_log("cleanupCachedData: decoder should not run, bailing out!")
+        if _decoderShouldRun == false {
+            as_log("decoder should not run, bailing out!")
             _streamStateLock.unlock()
             return
         } else {
             _streamStateLock.unlock()
         }
-        as_log("cleanupCachedData: lock")
+        as_log("lock")
         
         _packetQueueLock.lock()
         
         if _processedPackets.count == 0 {
-            as_log("cleanupCachedData: unlock")
+            as_log("unlock")
             _packetQueueLock.unlock()
             // Nothing can be cleaned yet, sorry
             as_log("Cache cleanup called but no free packets")
             return
         }
-        guard let last = _processedPackets.last, let raw = last  else { return }
+        guard let last = _processedPackets.last, let raw = last, _cleaning == false else {
+            _packetQueueLock.unlock()
+            return
+        }
         let lastPacket = raw.to(object: QueuedPacket.self)
         var keepCleaning = true
         var cur = _queuedHead
@@ -561,7 +573,7 @@ fileprivate extension AudioStream {
         }
         _queuedHead = cur
         _processedPackets.removeAll()
-        as_log("cleanupCachedData: unlock")
+        as_log("unlock")
         _packetQueueLock.unlock()
     }
     
@@ -798,13 +810,16 @@ extension AudioStream {
             if _requireNetworkPermision == true && _urlUsingNetwork != nil {
                 type = .networkPermission
             }
+            _inputStreamRunning = false
+            _audioStreamParserRunning = false
             closeAndSignalError(code: type, errorDescription: "Input stream open error")
         }
     }
     
     func close(withParser closeParser: Bool = false) {
-        as_log("enter")
         
+        
+        as_log("enter")
         invalidateWatchdogTimer()
         
         if let timer = _seekTimer {
@@ -864,21 +879,13 @@ extension AudioStream {
          * Free any remaining queud packets for encoding.
          */
         _packetQueueLock.lock()
-        var cur = _queuedHead
-        while cur != nil {
-            autoreleasepool(invoking: {
-                let tmp = cur?.next
-                cur?.data = nil
-                cur?.desc = nil
-                cur = nil
-                cur = tmp
-            })
+        
+        _processedPackets.removeAll()
+        autoreleasepool {
+            _packetSets.removeAll()
         }
-        _queuedHead = nil
-        _queuedTail = nil
         _cachedDataSize = 0
         _numPacketsToRewind = 0
-        _processedPackets.removeAll()
         _packetQueueLock.unlock()
         as_log("leave")
     }
@@ -1000,7 +1007,7 @@ extension AudioStream {
         var position = PlaybackPosition()
         if _audioStreamParserRunning {
             let queueTime = audioQueue.currentTime
-            let durationInSeconds = duration
+            let durationInSeconds = ceil(duration)
             position.timePlayed = (durationInSeconds * _seekOffset) +
                 Float(queueTime.mSampleTime / _dstFormat.mSampleRate)
             if durationInSeconds > 0 {
@@ -1065,7 +1072,9 @@ extension AudioStream {
         let callback: CFRunLoopTimerCallBack = { timer, userData in
             guard let data = userData else { return }
             let audioStream = data.to(object: AudioStream.self)
-            audioStream.seekTimerCallback()
+            DispatchQueue.main.async {
+                audioStream.seekTimerCallback()
+            }
         }
         let timer = CFRunLoopTimerCreate(nil, CFAbsoluteTimeGetCurrent(), 0.050, 0, 0, callback, &ctx)
         _seekTimer = timer
@@ -1440,7 +1449,7 @@ extension AudioStream: AudioQueueDelegate {
             createWatchdogTimer()
             return
         }
-        as_log("%i cached packets, enqueuing")
+        as_log("\(count) cached packets, enqueuing")
         // Keep enqueuing the packets in the queue until we have them
         _packetQueueLock.lock()
         if _playPacket != nil && count > 0 {
@@ -1449,10 +1458,16 @@ extension AudioStream: AudioQueueDelegate {
         } else {
             _packetQueueLock.unlock()
             as_log("closing the audio queue")
-            let total = playBackPosition.offset
-            close(withParser: true)
-            let finish = abs(1 - total) <= 0.01
-            if finish { state = .playbackCompleted }
+            FPLogger.shared.save()
+            if forceStop { return }
+            state = .playbackCompleted
+//            let total = playBackPosition.offset
+//            close(withParser: true)
+//            let delta = abs(1 - total)
+//            let finish = delta <= 0.05
+//            as_log("playBackPosition.offset:\(total), delta:\(delta), finish:\(finish)")
+//            
+//            if finish { state = .playbackCompleted  }
         }
     }
     
@@ -1482,15 +1497,15 @@ fileprivate extension AudioStream {
     // MARK: encoderDataCallback
     func encoderDataCallback(inAudioConverter: AudioConverterRef, ioNumberDataPackets: UnsafeMutablePointer<UInt32>, ioBufferList: UnsafeMutablePointer<AudioBufferList>, outDataPacketDescription: UnsafeMutablePointer<UnsafeMutablePointer<AudioStreamPacketDescription>?>?, inUserData: UnsafeMutableRawPointer?) -> OSStatus {
         
-        as_log("encoderDataCallback called")
+//        as_log("encoderDataCallback called")
         
-        as_log("encoderDataCallback 1: lock")
+//        as_log("encoderDataCallback 1: lock")
         _packetQueueLock.lock()
         // Dequeue one packet per time for the decoder
         let f = _playPacket
         guard let front = f else {
             /* Don't deadlock */
-            as_log("encoderDataCallback 2: unlock")
+//            as_log("encoderDataCallback 2: unlock")
             _packetQueueLock.unlock()
             /*
              * End of stream - Inside your input procedure, you must set the total amount of packets read and the sizes of the data in the AudioBufferList to zero. The input procedure should also return noErr. This will signal the AudioConverter that you are out of data. More specifically, set ioNumberDataPackets and ioBufferList->mDataByteSize to zero in your input proc and return noErr. Where ioNumberDataPackets is the amount of data converted and ioBufferList->mDataByteSize is the size of the amount of data converted in each AudioBuffer within your input procedure callback. Your input procedure may be called a few more times; you should just keep returning zero and noErr.
@@ -1523,7 +1538,7 @@ fileprivate extension AudioStream {
         _playPacket = front.next
         let raw = Unmanaged<QueuedPacket>.passUnretained(front).toOpaque()
         _processedPackets.insert(raw, at: 0)
-        as_log("encoderDataCallback 5: unlock")
+//        as_log("encoderDataCallback 5: unlock")
         _packetQueueLock.unlock()
         return noErr
     }
@@ -1634,6 +1649,8 @@ fileprivate extension AudioStream {
                 state = .buffering
                 _inputStreamRunning = true
             } else {
+                _inputStreamRunning = false
+                _audioStreamParserRunning = false
                 closeAndSignalError(code: .open, errorDescription: "Input stream open error")
                 return
             }
@@ -1719,7 +1736,7 @@ fileprivate extension AudioStream {
                     
                     while i < total {
                         let pasbd = formatListData.advanced(by: i).pointee
-                        as_log(pasbd.mASBD.mFormatID)
+                        as_log("pasbd.mASBD.mFormatID:\(pasbd.mASBD.mFormatID)")
                         if pasbd.mASBD.mFormatID == kAudioFormatMPEG4AAC_HE ||
                             pasbd.mASBD.mFormatID == kAudioFormatMPEG4AAC_HE_V2 {
                             _srcFormat = pasbd.mASBD
@@ -1761,7 +1778,7 @@ fileprivate extension AudioStream {
             as_log("stray callback detected!")
             return
         }
-        as_log("inNumberBytes:\(inNumberBytes), inNumberPackets:\(inNumberPackets)")
+//        as_log("inNumberBytes:\(inNumberBytes), inNumberPackets:\(inNumberPackets)")
         let inputData = Data(bytes: inInputData, count: Int(inNumberBytes))
         for index in 0..<inNumberPackets {
             autoreleasepool(invoking: {
@@ -1783,7 +1800,7 @@ fileprivate extension AudioStream {
                     }
                 }
                 
-                as_log("lock")
+//                as_log("lock")
                 _packetQueueLock.lock()
                 
                 /* Prepare the packet */
@@ -1806,24 +1823,23 @@ fileprivate extension AudioStream {
                     _queuedTail?.next = packet
                     _queuedTail = packet
                 }
+                _packetSets.insert(packet)
                 _cachedDataSize += Int(size)
                 _packetIdentifier += 1
-                as_log("unlock")
+//                as_log("unlock")
                 _packetQueueLock.unlock()
             })
         }
         determineBufferingLimits()
     }
-    
-    
 }
 
 // MARK: - Struct
 extension AudioStream {
-    fileprivate final class QueuedPacket: Equatable {
+    fileprivate final class QueuedPacket: Hashable {
         var identifier = UInt64()
         var desc: AudioStreamPacketDescription! = AudioStreamPacketDescription()
-        var next: QueuedPacket?
+        weak var next: QueuedPacket?
         var data: [UInt8]?
         
         init() { }
@@ -1831,6 +1847,8 @@ extension AudioStream {
         static func ==(lhs: QueuedPacket, rhs: QueuedPacket) -> Bool {
             return lhs.identifier == rhs.identifier
         }
+        
+        fileprivate var hashValue: Int { return Int(identifier) }
     }
 }
 
