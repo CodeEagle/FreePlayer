@@ -143,9 +143,6 @@ extension HttpStream {
         CFReadStreamSetProperty(stream, CFStreamPropertyKey(rawValue: kCFStreamPropertyHTTPShouldAutoredirect), kCFBooleanTrue)
         if config.usingCustomProxy {
             var dict: [String : Any] = [:]
-            dict[kCFStreamPropertyHTTPSProxyHost as String] = config.customProxyHttpHost
-            dict[kCFStreamPropertyHTTPSProxyPort as String] = config.customProxyHttpPort
-            dict[kCFNetworkProxiesHTTPEnable as String] = 1
             dict[kCFNetworkProxiesHTTPPort as String] = config.customProxyHttpPort
             dict[kCFNetworkProxiesHTTPProxy as String] = config.customProxyHttpHost
             let proxy = dict as CFDictionary
@@ -223,7 +220,6 @@ extension HttpStream {
         let ctype = CFHTTPMessageCopyHeaderFieldValue(response, Keys.contentType.cf)?.takeUnretainedValue()
         contentType = (ctype as String?) ?? ""
         hs_log("\(Keys.contentType.rawValue): \(contentType)")
-        hs_log("response:\(response)")
         let status200 = statusCode == 200
         let status401 = statusCode == 401
         let clen = CFHTTPMessageCopyHeaderFieldValue(response, Keys.contentLength.cf)?.takeUnretainedValue()
@@ -247,7 +243,7 @@ extension HttpStream {
                     _credentials = credentials
                     _auth = authentication
                 }
-                hs_log("did recieve authentication request")
+                hs_log("did recieve authentication challenge")
                 resetOpenTimer(needResetReadedFlag: true)
                 startOpenTimer(0.5)
             } else {
