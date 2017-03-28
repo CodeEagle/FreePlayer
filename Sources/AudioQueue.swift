@@ -196,7 +196,7 @@ extension AudioQueue {
         if let queue = _outAQ {
             var discontinuity: DarwinBoolean  = false
             let err = AudioQueueGetCurrentTime(queue, nil, &queueTime, &discontinuity)
-            if (err != noErr) {
+            if err != noErr {
                 aq_log("AudioQueueGetCurrentTime failed")
             }
         }

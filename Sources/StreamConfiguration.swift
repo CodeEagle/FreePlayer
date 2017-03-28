@@ -91,17 +91,17 @@ public struct StreamConfiguration {
     /** 自动填充ID3的信息到 NowPlayingCenter */
     public var autoFillID3InfoToNowPlayingCenter = false
     /** 使用自定义代理 */
-    public var usingCustomProxy = false
+    public var usingCustomProxy = false { didSet { didConfigureProxy() } }
     /** 使用自定义代理 用户名*/
     public var customProxyUsername = ""
     /** 使用自定义代理 密码*/
     public var customProxyPassword = ""
     /** 使用自定义代理 Http Host */
-    public var customProxyHttpHost = ""
+    public var customProxyHttpHost = "" { didSet { didConfigureProxy() } }
     /** 使用自定义代理 Http Port */
-    public var customProxyHttpPort = 80
+    public var customProxyHttpPort = 0 { didSet { didConfigureProxy() } }
     /** 使用自定义代理 authenticationScheme, kCFHTTPAuthenticationSchemeBasic... */
-    public var customProxyAuthenticationScheme: AuthenticationScheme = .basic
+    public var customProxyAuthenticationScheme: AuthenticationScheme = .digest { didSet { didConfigureProxy() } }
     
     private init() {
         #if (arch(i386) || arch(x86_64)) && os(iOS)//iPhone Simulator
@@ -121,11 +121,11 @@ public struct StreamConfiguration {
         maxBounceCount = 4   // Max number of bufferings in bounceInterval seconds
         startupWatchdogPeriod = 30
         
-        /* Adjust the max in-memory cache to 10 MB with newer 64 bit devices or 1 MB for 32 bit devices*/
-        maxPrebufferedByteCount = (MemoryLayout<CGFloat>.size == 8) ? 10000000 : 1000000
+        /* Adjust the max in-memory cache to 20 MB with newer 64 bit devices or 5 MB for 32 bit devices*/
+        maxPrebufferedByteCount = (MemoryLayout<CGFloat>.size == 8) ? 20000000 : 5000000
         
         cacheEnabled = true
-        seekingFromCacheEnabled = true
+        seekingFromCacheEnabled = false
         automaticAudioSessionHandlingEnabled = true
         enableTimeAndPitchConversion = false
         requireStrictContentTypeChecking = true
@@ -155,5 +155,9 @@ public struct StreamConfiguration {
             osStr = "macOS"
         #endif
         userAgent = "FreePlayer/\(FreePlayerVersion) \(osStr)"
+    }
+    
+    private func didConfigureProxy() {
+        NowPlayingInfo.shared.updateProxy()
     }
 }

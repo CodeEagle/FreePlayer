@@ -129,6 +129,7 @@ extension HttpStream {
             hs_log("Setting predefined HTTP header[\(key) : \(value)]")
             CFHTTPMessageSetHeaderFieldValue(request, key as CFString, value as CFString)
         }
+        
         if let authentication = _auth, let info = _credentials {
             let credentials = info as CFDictionary
             if CFHTTPMessageApplyCredentialDictionary(request, authentication, credentials, nil) == false {
@@ -221,7 +222,7 @@ extension HttpStream {
         contentType = (ctype as String?) ?? ""
         hs_log("\(Keys.contentType.rawValue): \(contentType)")
         let status200 = statusCode == 200
-        let status401 = statusCode == 401
+        let serverError = 500...599
         let clen = CFHTTPMessageCopyHeaderFieldValue(response, Keys.contentLength.cf)?.takeUnretainedValue()
         if let len = clen, status200 {
             contentLength = UInt64(CFStringGetIntValue(len))
@@ -230,7 +231,7 @@ extension HttpStream {
         if status200 || statusCode == 206 {
             delegate?.streamIsReadyRead()
         } else {
-            if status401 {
+            if [401, 407].contains(statusCode) {
                 let responseHeader = CFReadStreamCopyProperty(readStream, CFStreamPropertyKey(rawValue: kCFStreamPropertyHTTPResponseHeader)) as! CFHTTPMessage
                 // Get the authentication information from the response.
                 let authentication = CFHTTPAuthenticationCreateFromResponse(nil, responseHeader).takeUnretainedValue()
@@ -244,6 +245,10 @@ extension HttpStream {
                     _auth = authentication
                 }
                 hs_log("did recieve authentication challenge")
+                resetOpenTimer(needResetReadedFlag: true)
+                startOpenTimer(0.5)
+            } else if serverError.contains(statusCode) {
+                hs_log("server error:\(statusCode)")
                 resetOpenTimer(needResetReadedFlag: true)
                 startOpenTimer(0.5)
             } else {
@@ -519,7 +524,7 @@ extension HttpStream {
                     
                     if bytesRead > 0 {
                         hs._bytesRead += UInt64(bytesRead)
-                        hs_log("Read \(bytesRead) bytes, total \(hs._bytesRead)")
+                        hs_log("Read \(bytesRead) bytes, total to read: \(hs.contentLength)")
                         hs.parseHttpHeadersIfNeeded(buffer: &httpReadBuffer, bufSize: bytesRead)
                         if hs._icyStream == false && hs._id3Parser?.wantData() == true {
                             hs._id3Parser?.feedData(data: &httpReadBuffer, numBytes: UInt32(bytesRead))

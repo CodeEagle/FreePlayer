@@ -8,20 +8,13 @@
 
 import MediaPlayer
 #if os(iOS)
-    public final class NowPlayingInfo {
+    public final class NowPlayingInfo: NSObject {
         public static var shared = NowPlayingInfo()
-        public var name = "" {
-            didSet {
-                FPLogger.write(msg: "🎹:\(name)")
-            }
-        }
+        private var session = URLSession.shared
+        public var name = "" { didSet { FPLogger.write(msg: "🎹:\(name)") } }
         public var artist = ""
         public var album = ""
-        public var artwork = UIImage() {
-            didSet {
-                didSetImage()
-            }
-        }
+        public var artwork = UIImage() { didSet { didSetImage() } }
         public var duration = 0
         public var playbackRate = Double()
         public var playbackTime = Double()
@@ -29,7 +22,7 @@ import MediaPlayer
         private var _lock: OSSpinLock = OS_SPINLOCK_INIT
         private var _coverTask: URLSessionDataTask?
         private var _backgroundTask = UIBackgroundTaskInvalid
-        private init() { }
+        private override init() { }
         
         var info: [String : Any] {
             var map = [String : Any]()
@@ -73,7 +66,7 @@ import MediaPlayer
                     return
                 }
                self.startBackgroundTask()
-                let task = URLSession.shared.dataTask(with: request, completionHandler: { [weak self](data, resp, _) in
+                let task = self.session.dataTask(with: request, completionHandler: { [weak self](data, resp, _) in
                     self?.endBackgroundTask()
                     if let r = resp, let d = data {
                         let cre = CachedURLResponse(response: r, data: d)
@@ -124,6 +117,39 @@ import MediaPlayer
             guard _backgroundTask != UIBackgroundTaskInvalid else { return }
             UIApplication.shared.endBackgroundTask(_backgroundTask)
             _backgroundTask = UIBackgroundTaskInvalid
+        }
+        
+        func updateProxy() {
+            let config = StreamConfiguration.shared
+            if  config.usingCustomProxy {
+                guard config.customProxyHttpHost.isEmpty == false, config.customProxyHttpPort != 0 else { return }
+                let configure = URLSessionConfiguration.default
+                let enableKey = kCFNetworkProxiesHTTPEnable as String
+                let hostKey = kCFNetworkProxiesHTTPProxy as String
+                let portKey = kCFNetworkProxiesHTTPPort as String
+                configure.connectionProxyDictionary = [
+                    enableKey : 1,
+                    hostKey : config.customProxyHttpHost,
+                    portKey : config.customProxyHttpPort
+                ]
+                session = URLSession(configuration: configure, delegate: self, delegateQueue: .main)
+            } else {
+                NowPlayingInfo.shared.session = URLSession.shared
+            }
+        }
+    }
+    
+    // MARK: - URLSessionDelegate, URLSessionTaskDelegate
+    extension NowPlayingInfo: URLSessionDelegate, URLSessionTaskDelegate {
+        public func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+            let config = StreamConfiguration.shared
+            let isDigestMehod = challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodHTTPDigest
+            if challenge.previousFailureCount == 0, isDigestMehod {
+                let credential = URLCredential(user: config.customProxyUsername, password: config.customProxyPassword, persistence: URLCredential.Persistence.forSession)
+                completionHandler(URLSession.AuthChallengeDisposition.useCredential, credential)
+            } else {
+                completionHandler(URLSession.AuthChallengeDisposition.useCredential, nil)
+            }
         }
     }
 #endif

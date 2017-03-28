@@ -243,6 +243,7 @@ extension AudioStream {
             } else {
                 as_log("decoder: converter run out data: bailing out")
                 _packetQueueLock.unlock()
+                cleanupCachedData()
             }
         } else { _streamStateLock.unlock() }
     }
@@ -539,12 +540,12 @@ fileprivate extension AudioStream {
         } else {
             _streamStateLock.unlock()
         }
-        as_log("lock")
+//        as_log("lock")
         
         _packetQueueLock.lock()
         
         if _processedPackets.count == 0 {
-            as_log("unlock")
+//            as_log("unlock")
             _packetQueueLock.unlock()
             // Nothing can be cleaned yet, sorry
             as_log("Cache cleanup called but no free packets")
@@ -557,6 +558,7 @@ fileprivate extension AudioStream {
         let lastPacket = raw.to(object: QueuedPacket.self)
         var keepCleaning = true
         var cur = _queuedHead
+        
         while cur != nil && keepCleaning {
             if cur?.identifier == lastPacket.identifier {
                 as_log("Found the last packet to be cleaned up")
@@ -568,12 +570,13 @@ fileprivate extension AudioStream {
             cur = tmp
             if cur == _playPacket {
                 keepCleaning = false
-                as_log("Found m_playPacket")
+                as_log("Found _playPacket")
             }
         }
         _queuedHead = cur
+        
         _processedPackets.removeAll()
-        as_log("unlock")
+//        as_log("unlock")
         _packetQueueLock.unlock()
     }
     
@@ -1460,14 +1463,11 @@ extension AudioStream: AudioQueueDelegate {
             as_log("closing the audio queue")
             FPLogger.shared.save()
             if forceStop { return }
-            state = .playbackCompleted
-//            let total = playBackPosition.offset
-//            close(withParser: true)
-//            let delta = abs(1 - total)
-//            let finish = delta <= 0.05
-//            as_log("playBackPosition.offset:\(total), delta:\(delta), finish:\(finish)")
-//            
-//            if finish { state = .playbackCompleted  }
+            let total = playBackPosition.offset
+            let delta = abs(1 - total)
+            let finish = delta <= 0.05
+            as_log("playBackPosition.offset:\(total), delta:\(delta), finish:\(finish)")
+            if finish { state = .playbackCompleted  }
         }
     }
     

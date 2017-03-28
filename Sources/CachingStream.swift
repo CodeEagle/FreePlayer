@@ -92,7 +92,7 @@ extension CachingStream {
         var b: stat = stat()
         let hasFile = stat(buffer, &b) == 0
         if !hasFile {
-            cs_log("no file:\(filePath) at:\(config.storeDirectory)")
+            cs_log("no file:\(filePath) at:\(config.storeDirectory ?? "")")
             return false
         }
         
