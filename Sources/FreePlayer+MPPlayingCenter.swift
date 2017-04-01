@@ -10,7 +10,7 @@ import MediaPlayer
 #if os(iOS)
     public final class NowPlayingInfo: NSObject {
         public static var shared = NowPlayingInfo()
-        private var session = URLSession.shared
+        var session = URLSession.shared
         public var name = "" { didSet { FPLogger.write(msg: "🎹:\(name)") } }
         public var artist = ""
         public var album = ""

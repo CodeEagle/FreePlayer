@@ -28,7 +28,7 @@ final class ID3Parser {
     fileprivate var _state: State = .initial
     fileprivate var _tagData: Data = Data()
     fileprivate var _bytesReceived = UInt32()
-    fileprivate var _tagSize = UInt32()
+    fileprivate var _tagSize = UInt32() { didSet { totalTagSize() } }
     fileprivate var _majorVersion = UInt8()
     fileprivate var _hasFooter = false
     fileprivate var _usesUnsynchronisation = false
@@ -40,9 +40,9 @@ final class ID3Parser {
     fileprivate var _parsing = false
     fileprivate var _lastData: Data?
     fileprivate var _queue = DispatchQueue(label: "com.selfstudio.freeplayer.idrparser")
-    
-    fileprivate var _thread: pthread_t?
-    
+    fileprivate var _hasV1Tag = false { didSet { totalTagSize() } }
+    fileprivate var _v1TagDeal = false
+    fileprivate var _v2TagDeal = false
     enum State {
         case initial
         case parseFrames
@@ -80,8 +80,10 @@ extension ID3Parser {
     func reset() {
         _state = .initial
         _bytesReceived = 0
-        _tagSize = 0
         _majorVersion = 0
+        _v1TagDeal = false
+        _v2TagDeal = false
+        _tagSize = 0
         _hasFooter = false
         _usesUnsynchronisation = false
         _usesExtendedHeader = false
@@ -93,13 +95,88 @@ extension ID3Parser {
         return done == false
     }
     
+    func totalTagSize() {
+        guard _v1TagDeal, _v2TagDeal else { return }
+        var final = _tagSize
+        if _hasV1Tag { final += 128 }
+        delegate?.id3tagSizeAvailable(tag: final)
+    }
+    
+    func detechV1(with url: URL?, total: UInt64) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard let u = url else {
+                self._v1TagDeal = true
+                self._hasV1Tag = false
+                return
+            }
+            if HttpStream.canHandle(url: u) {
+                if  total < 128  {
+                    self._v1TagDeal = true
+                    self._hasV1Tag = false
+                    return
+                }
+                let start = total - 128
+                let end = start + 2
+                var request = URLRequest(url: u)
+                request.setValue("bytes=\(start)-\(end)", forHTTPHeaderField: "Range")
+                NowPlayingInfo.shared.session.dataTask(with: request) {[weak self] (data, resp, error) in
+                    if let d = data, d.count == 4 {
+                        let range = Range(uncheckedBounds: (d.startIndex, d.startIndex.advanced(by: 3)))
+                        let sub = d.subdata(in: range)
+                        let tag = String(data: sub, encoding: .ascii)
+                        if  tag == "TAG" {
+                            DispatchQueue.main.async {
+                                self?._v1TagDeal = true
+                                self?._hasV1Tag = true
+                            }
+                            return
+                        }
+                    }
+                    DispatchQueue.main.async {
+                        self?._v1TagDeal = true
+                        self?._hasV1Tag = false
+                    }
+                }.resume()
+            } else if FileStream.canHandle(url: u) {
+                let raw = u.absoluteString.replacingOccurrences(of: "file://", with: "")
+                var buff = stat()
+                if stat(raw.withCString({$0}), &buff) != 0 {
+                    DispatchQueue.main.async {
+                        self._v1TagDeal = true
+                        self._hasV1Tag = false
+                    }
+                    return
+                }
+                let size = buff.st_size
+                if let file = fopen(raw.withCString({$0}), "r".withCString({$0})) {
+                    defer { fclose(file) }
+                    fseek(file, -128, SEEK_END)
+                    let length = 3
+                    var bytes: [UInt8] = Array(repeating: 0, count: length)
+                    fread(&bytes, 1, length, file)
+                    if String(bytes: bytes, encoding: .utf8) == "TAG" {
+                        DispatchQueue.main.async {
+                            self._v1TagDeal = true
+                            self._hasV1Tag = true
+                        }
+                        return
+                    }
+                }
+                DispatchQueue.main.async {
+                    self._v1TagDeal = true
+                    self._hasV1Tag = false
+                }
+            }
+        }
+        
+    }
+    
     func feedData(data: UnsafeMutablePointer<UInt8>, numBytes: UInt32) {
         _queue.sync {
             if self.wantData() == false  { return }
             if  self._state == .tagParsed  { return }
             if self._parsing { return }
             self._bytesReceived += numBytes
-//            id3_log("received \(numBytes) bytes, total bytesReceived \(self._bytesReceived)")
             let dat = Data(bytes: data, count: Int(numBytes))
             _lastData = dat
             if self._state != .notID3V2 {
@@ -139,10 +216,9 @@ extension ID3Parser {
     }
     
     private func dealV1(with data: [UInt8]) {
-        _tagSize = 128
         id3_log("tag size: \(_tagSize)")
         if StreamConfiguration.shared.autoFillID3InfoToNowPlayingCenter == false { return }
-        delegate?.id3tagSizeAvailable(tag: _tagSize)
+        
         let total = [ID3V1Length.header, ID3V1Length.title, ID3V1Length.artist, ID3V1Length.album, ID3V1Length.year, ID3V1Length.comment]
         var offset = 0
         var end = 0
@@ -197,12 +273,14 @@ extension ID3Parser {
         if content != "ID3" {
             id3_log("Not an ID3v2 tag, bailing out")
             setState(state: .notID3V2)
+            _v2TagDeal = true
             return false
         }
         _majorVersion = _tagData[3]
         // Currently support only id3v2.2 and 2.3
         if _majorVersion != 2 && _majorVersion != 3 && _majorVersion != 4 {
             id3_log("ID3v2.\(_majorVersion) not supported by the parser")
+            _v2TagDeal = true
             setState(state: .notID3V2)
             return false
         }
@@ -219,13 +297,14 @@ extension ID3Parser {
         let seven = (UInt32(_tagData[7]) & 0x7F) << 14
         let eight = (UInt32(_tagData[8]) & 0x7F) << 7
         let nine = UInt32(_tagData[9]) & 0x7F
-        _tagSize = six | seven | eight | nine
+        var tagsize = six | seven | eight | nine
         
-        if _tagSize > 0 {
-            if _hasFooter { _tagSize += 10 }
-            _tagSize += 10
+        if tagsize > 0 {
+            if _hasFooter { tagsize += 10 }
+            tagsize += 10
+            _v2TagDeal = true
+            _tagSize = tagsize
             id3_log("tag size: \(_tagSize)")
-            delegate?.id3tagSizeAvailable(tag: _tagSize)
             if StreamConfiguration.shared.autoFillID3InfoToNowPlayingCenter == false {
                 setState(state: .tagParsed)
                 return false
@@ -234,6 +313,7 @@ extension ID3Parser {
                 return true
             }
         }
+        _v2TagDeal = true
         setState(state: .notID3V2)
         return false
     }
@@ -321,7 +401,7 @@ extension ID3Parser {
                 encoding = CFStringBuiltInEncodings.UTF16.rawValue;
                 byteOrderMark = true
             }
-            let name = String(bytes: frameName, encoding: .utf8)
+            let name = String(bytes: frameName, encoding: .utf8) ?? ""
             if name == "TIT2" || name == "TT2" {
                 _title = parseContent(framesize: UInt32(framesize), pos: UInt32(pos) + 1, encoding: encoding, byteOrderMark: byteOrderMark)
                 id3_log("ID3 title parsed: \(_title)")
@@ -337,7 +417,7 @@ extension ID3Parser {
                     } else { break }
                 }
                 dataPos += imageType.count + 1
-                let type = String(bytes: imageType, encoding: .utf8)
+                let type = String(bytes: imageType, encoding: .utf8) ?? ""
                 let jpeg = type == "image/jpeg"
                 let png = type == "image/png"
                 if  jpeg || png {

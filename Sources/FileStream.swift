@@ -111,6 +111,7 @@ extension FileStream: StreamInputProtocol {
             return out()
         }
         success = true
+        _id3Parser?.detechV1(with: url, total: 0)
         return out()
     }
     
@@ -129,8 +130,7 @@ extension FileStream: StreamInputProtocol {
     
     func setScheduledInRunLoop(run: Bool) {
         guard let readStream = _readStream else { return }
-        if _scheduledInRunLoop == run { return }
-        if _scheduledInRunLoop {
+        if run == false {
             CFReadStreamUnscheduleFromRunLoop(readStream, CFRunLoopGetCurrent(), CFRunLoopMode.commonModes)
         } else {
             if _readPending {

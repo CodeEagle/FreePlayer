@@ -81,7 +81,7 @@ extension CachingStream {
         _fileOutput = nil
         let config = StreamConfiguration.shared
         guard let storeFolder = config.storeDirectory else {
-            cs_log("no config.storeDirectory:\(config.storeDirectory)")
+            cs_log("no config.storeDirectory)")
             return false
         }
         

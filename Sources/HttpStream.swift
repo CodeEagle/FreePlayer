@@ -110,7 +110,7 @@ fileprivate extension HttpStream {
 // MARK: Utils
 extension HttpStream {
     
-    @discardableResult func createReadStream(from url: URL?) -> CFReadStream? {
+    func createReadStream(from url: URL?) -> CFReadStream? {
         guard let u = url else { return nil }
         
         let config = StreamConfiguration.shared
@@ -217,7 +217,6 @@ extension HttpStream {
             _icyName = n
             delegate?.streamMetaDataAvailable(metaData: [Keys.icecastStationName.rawValue : Metadata.text(n)])
         }
-        
         let ctype = CFHTTPMessageCopyHeaderFieldValue(response, Keys.contentType.cf)?.takeUnretainedValue()
         contentType = (ctype as String?) ?? ""
         hs_log("\(Keys.contentType.rawValue): \(contentType)")
@@ -227,6 +226,7 @@ extension HttpStream {
         if let len = clen, status200 {
             contentLength = UInt64(CFStringGetIntValue(len))
             hs_log("contentLength:\(contentLength)")
+            _id3Parser?.detechV1(with: _url, total: contentLength)
         }
         if status200 || statusCode == 206 {
             delegate?.streamIsReadyRead()

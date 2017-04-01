@@ -243,7 +243,7 @@ extension AudioStream {
             } else {
                 as_log("decoder: converter run out data: bailing out")
                 _packetQueueLock.unlock()
-                cleanupCachedData()
+                
             }
         } else { _streamStateLock.unlock() }
     }
@@ -471,7 +471,7 @@ extension AudioStream {
     }
     
     var playbackDataCount: Int {
-        as_log("lock: playbackDataCount")
+//        as_log("lock: playbackDataCount")
         _packetQueueLock.lock()
         var count = 0
         var cur = _playPacket
@@ -479,7 +479,7 @@ extension AudioStream {
             cur = cur?.next
             count += 1
         }
-        as_log("unlock: playbackDataCount")
+//        as_log("unlock: playbackDataCount")
         _packetQueueLock.unlock()
         return count
     }
@@ -494,7 +494,7 @@ extension AudioStream {
         for i in 0..<AudioStream.kAudioStreamBitrateBufferSize {
             sum += _bitrateBuffer[i]
         }
-        return Float(sum) / Float(total)
+        return floor(Float(sum) / Float(total))
     }
     
 }
@@ -556,27 +556,27 @@ fileprivate extension AudioStream {
             return
         }
         let lastPacket = raw.to(object: QueuedPacket.self)
-        var keepCleaning = true
-        var cur = _queuedHead
         
+        var cur = _queuedHead
+        var keepCleaning = true
         while cur != nil && keepCleaning {
             if cur?.identifier == lastPacket.identifier {
-                as_log("Found the last packet to be cleaned up")
-                keepCleaning  = false
+                as_log("Found lastPackect:\(lastPacket.identifier)")
+                keepCleaning = false
             }
             let tmp = cur?.next
             _cachedDataSize -= Int(cur?.desc.mDataByteSize ?? 0)
             cur = nil
             cur = tmp
+            _ = _processedPackets.popLast()
+            _packetSets.remove(lastPacket)
             if cur == _playPacket {
-                keepCleaning = false
-                as_log("Found _playPacket")
+                as_log("Found _playPacket:\(_playPacket?.identifier ?? 0)")
+                break
             }
         }
         _queuedHead = cur
-        
         _processedPackets.removeAll()
-//        as_log("unlock")
         _packetQueueLock.unlock()
     }
     
@@ -1024,7 +1024,7 @@ extension AudioStream {
         let framesPerPacket = _srcFormat?.mFramesPerPacket ?? 0
         let rate = _srcFormat?.mSampleRate ?? 0
         if _audioDataPacketCount > 0 && framesPerPacket > 0 {
-            return Float(_audioDataPacketCount) * Float(framesPerPacket) / Float(rate)
+            return floor(Float(_audioDataPacketCount) * Float(framesPerPacket) / Float(rate))
         }
         // Not enough data provided by the format, use bit rate based estimation
         var audioFileLength = UInt64()
@@ -1037,9 +1037,11 @@ extension AudioStream {
         
         if audioFileLength > 0 {
             // 总播放时间 = 文件大小 * 8 / 比特率
-            let _bitrate = bitrate
-            if _bitrate > 0 {
-                return Float(audioFileLength) / (_bitrate * 0.125)
+            let rate = ceil(bitrate / 1000) * 1000 * 0.125
+            if rate > 0 {
+                let length = Float(audioFileLength)
+                let dur = floor(length / rate)
+                return dur
             }
         }
         return 0
@@ -1097,7 +1099,7 @@ extension AudioStream {
     func set(playRate: Float) { _audioQueue?.setPlayRate(playRate: playRate) }
     
     func set(url u: URL?) {
-        as_log("url:\(u)")
+        as_log("url:\(u?.absoluteString ?? "")")
         guard let url = u else { return }
         _urlUsingNetwork = nil
         _inputStream?.close()
@@ -1140,7 +1142,7 @@ extension AudioStream {
             _inputStream = FileStream()
         }
         _inputStream?.delegate = self
-        as_log("_requireNetworkPermision:\(_requireNetworkPermision), _urlUsingNetwork:\(_urlUsingNetwork)")
+        as_log("_requireNetworkPermision:\(_requireNetworkPermision), _urlUsingNetwork:\(_urlUsingNetwork?.absoluteString ?? "")")
         if !_requireNetworkPermision || _urlUsingNetwork == nil {
             _inputStream?.set(url: url)
         } else {
@@ -1378,7 +1380,7 @@ extension AudioStream: AudioQueueDelegate {
          * If we don't have any cached data to play and we are still supposed to
          * feed the audio queue with data, enter the buffering state.
          */
-        if count == 0 && _inputStreamRunning && state == .failed {
+        if count == 0 && _inputStreamRunning && state != .failed {
             let config = StreamConfiguration.shared
             
             _packetQueueLock.lock()
@@ -1497,7 +1499,6 @@ fileprivate extension AudioStream {
     // MARK: encoderDataCallback
     func encoderDataCallback(inAudioConverter: AudioConverterRef, ioNumberDataPackets: UnsafeMutablePointer<UInt32>, ioBufferList: UnsafeMutablePointer<AudioBufferList>, outDataPacketDescription: UnsafeMutablePointer<UnsafeMutablePointer<AudioStreamPacketDescription>?>?, inUserData: UnsafeMutableRawPointer?) -> OSStatus {
         
-//        as_log("encoderDataCallback called")
         
 //        as_log("encoderDataCallback 1: lock")
         _packetQueueLock.lock()
@@ -1505,7 +1506,7 @@ fileprivate extension AudioStream {
         let f = _playPacket
         guard let front = f else {
             /* Don't deadlock */
-//            as_log("encoderDataCallback 2: unlock")
+            as_log("Run Out Of Data")
             _packetQueueLock.unlock()
             /*
              * End of stream - Inside your input procedure, you must set the total amount of packets read and the sizes of the data in the AudioBufferList to zero. The input procedure should also return noErr. This will signal the AudioConverter that you are out of data. More specifically, set ioNumberDataPackets and ioBufferList->mDataByteSize to zero in your input proc and return noErr. Where ioNumberDataPackets is the amount of data converted and ioBufferList->mDataByteSize is the size of the amount of data converted in each AudioBuffer within your input procedure callback. Your input procedure may be called a few more times; you should just keep returning zero and noErr.
