@@ -12,7 +12,7 @@ import AudioToolbox
 public enum AudioStreamState { case stopped, buffering, playing, paused, seeking, failed, endOfFile, playbackCompleted, retryingStarted, retryingSucceeded, retryingFailed }
 
 public enum AudioStreamError: Int {
-    case none, open, streamParse, network, unsupportedFormat, streamBouncing, terminated, networkPermission
+    case none, open, streamParse, network, unsupportedFormat, streamBouncing, terminated, networkPermission, badURL
 }
 
 public struct PlaybackPosition {

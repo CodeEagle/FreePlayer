@@ -540,12 +540,9 @@ fileprivate extension AudioStream {
         } else {
             _streamStateLock.unlock()
         }
-//        as_log("lock")
-        
         _packetQueueLock.lock()
         
         if _processedPackets.count == 0 {
-//            as_log("unlock")
             _packetQueueLock.unlock()
             // Nothing can be cleaned yet, sorry
             as_log("Cache cleanup called but no free packets")
@@ -740,8 +737,8 @@ extension AudioStream {
             let length = contentLength
             position.start = UInt64(floor(_currentPlaybackPosition.offset * Float(length)))
             position.end = length
-            as_log("reopen start offset:\(_currentPlaybackPosition.offset) .")
-            as_log("reopen contentLength:\(length) .")
+            as_log("reopen start offset:\(_currentPlaybackPosition.offset).")
+            as_log("reopen contentLength:\(length).")
             open(position: position)
             let delta = position.end - _dataOffset
             guard delta > 0 else { return }
@@ -820,7 +817,6 @@ extension AudioStream {
     }
     
     func close(withParser closeParser: Bool = false) {
-        
         
         as_log("enter")
         invalidateWatchdogTimer()
@@ -1338,6 +1334,13 @@ extension AudioStream: StreamInputDelegate {
         if !_inputStreamRunning {
             as_log("stray callback detected!")
             return
+        }
+        if errorDesc.hasPrefix(HttpStream.fixedCodeError) {
+            let raw = errorDesc.replacingOccurrences(of: HttpStream.fixedCodeError, with: "")
+            if let errorCode = Int(raw), errorCode == 404 {
+                closeAndSignalError(code: .badURL, errorDescription: errorDesc)
+                return
+            }
         }
         closeAndSignalError(code: .network, errorDescription: errorDesc)
     }

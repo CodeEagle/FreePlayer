@@ -482,6 +482,7 @@ extension FreePlayer: AudioStreamDelegate {
     }
     
     func audioStreamErrorOccurred(errorCode: AudioStreamError , errorDescription: String) {
+        onFailure?(errorCode, errorDescription)
         let needRestart: [AudioStreamError] = [.network, .unsupportedFormat, .open, .terminated]
         if _audioStream?.isPreloading == false && needRestart.contains(errorCode) {
             attemptRestart()

@@ -11,6 +11,7 @@ import CFNetwork
 
 /// HttpStream
 final class HttpStream {
+    static var fixedCodeError: String { return "HTTP response code " }
     // MARK: StreamInputProtocol
     weak var delegate: StreamInputDelegate?
     var position = Position()
@@ -252,7 +253,7 @@ extension HttpStream {
                 resetOpenTimer(needResetReadedFlag: true)
                 startOpenTimer(0.5)
             } else {
-                delegate?.streamErrorOccurred(errorDesc: "HTTP response code \(statusCode)")
+                delegate?.streamErrorOccurred(errorDesc: "\(HttpStream.fixedCodeError)\(statusCode)")
             }
         }
     }

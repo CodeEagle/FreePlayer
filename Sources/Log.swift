@@ -51,6 +51,10 @@ public struct FPLogger {
         logToFile = UserDefaults.standard.bool(forKey: "FreePlayer.LogToFile")
         toggleEnableLog()
         DispatchQueue.global(qos: .userInitiated).setTarget(queue: _logQueue)
+        NotificationCenter.default.addObserver(forName: NSNotification.Name.UIApplicationWillTerminate, object: nil, queue: OperationQueue.main) { (_) in
+            // 崩溃前保存记录
+            FPLogger.shared.logToFile = false
+        }
     }
     /// 开启打印
     ///
@@ -164,9 +168,7 @@ public struct FPLogger {
             }
         } else {
             guard let fileHandle = _fileHandler else { return }
-            _logQueue.sync {
-                fileHandle.closeFile()
-            }
+            _logQueue.sync { fileHandle.closeFile() }
         }
     }
     
