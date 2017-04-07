@@ -261,7 +261,7 @@ extension AudioQueue {
                 enqueueBuffer()
                 if (!_audioQueueStarted) { return }
             } else {
-                aq_log("skipped enqueueBuffer AQ_BUFSIZ - m_bytesFilled \(bufferSize - _bytesFilled), packetSize \(packetSize)")
+                aq_log("skipped enqueueBuffer AQ_BUFSIZ - m_bytesFilled \(bufferSize) - \(_bytesFilled), packetSize \(packetSize)")
             }
             
             // copy data to the audio queue buffer

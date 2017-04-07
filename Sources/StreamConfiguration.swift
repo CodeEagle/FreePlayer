@@ -122,11 +122,11 @@ public struct StreamConfiguration {
         startupWatchdogPeriod = 30
         
         /* Adjust the max in-memory cache to 20 MB with newer 64 bit devices or 5 MB for 32 bit devices*/
-        #if DEBUG
-            maxPrebufferedByteCount = 1000000
-        #else
+//        #if DEBUG
+//            maxPrebufferedByteCount = 1000000
+//        #else
             maxPrebufferedByteCount = (MemoryLayout<CGFloat>.size == 8) ? 20000000 : 5000000
-        #endif
+//        #endif
         
         cacheEnabled = true
         seekingFromCacheEnabled = false

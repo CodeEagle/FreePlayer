@@ -49,6 +49,7 @@ final class AudioStream {
     fileprivate var _urlUsingNetwork: URL?
     
     fileprivate var _packetIdentifier = UInt64()
+    fileprivate var _playingPacketIdentifier = UInt64()
     fileprivate var _dataOffset = UInt64()
     fileprivate var _seekOffset = Float()
     fileprivate var _bounceCount = Int()
@@ -201,7 +202,7 @@ extension AudioStream {
     fileprivate func runDecodeloop() {
         let queue = DispatchQueue(label: "com.selfstudio.freeplayer.decodequeue", attributes: [])
         let timer = DispatchSource.makeTimerSource(flags: DispatchSource.TimerFlags(rawValue: 0), queue: queue)
-        let pageStepTime: DispatchTimeInterval = .milliseconds(20)
+        let pageStepTime: DispatchTimeInterval = .milliseconds(15)
         timer.scheduleRepeating(deadline: .now() + pageStepTime, interval: pageStepTime)
         timer.setEventHandler(handler: {[weak self] in
             guard let sself = self, sself._cleaning == false else { return }
@@ -278,6 +279,7 @@ extension AudioStream {
                 _numPacketsToRewind -= 1
             }
             _playPacket = front
+            
             _numPacketsToRewind = 0
         }
         _packetQueueLock.unlock()
@@ -859,6 +861,7 @@ extension AudioStream {
         
         _packetQueueLock.lock()
         _playPacket = nil
+        as_log("_playPacket: nil")
         _packetQueueLock.unlock()
         
         closeAudioQueue()
@@ -1388,6 +1391,7 @@ extension AudioStream: AudioQueueDelegate {
             
             _packetQueueLock.lock()
             _playPacket = _queuedHead
+            
             if _processedPackets.count > 0 {
                 /*
                  * We have audio packets in memory (only case with a non-continuous stream),
@@ -1406,6 +1410,7 @@ extension AudioStream: AudioQueueDelegate {
                     }
                     if cur != nil {
                         _playPacket = cur
+                        
                     }
                 }
             }
@@ -1468,11 +1473,20 @@ extension AudioStream: AudioQueueDelegate {
             as_log("closing the audio queue")
             FPLogger.shared.save()
             if forceStop { return }
-            let total = playBackPosition.offset
-            let delta = abs(1 - total)
-            let finish = delta <= 0.05
-            as_log("playBackPosition.offset:\(total), delta:\(delta), finish:\(finish)")
-            if finish { state = .playbackCompleted  }
+            let totalDuration = duration
+            let total = playBackPosition.timePlayed
+            let delta = totalDuration - total
+            if delta >= 1, delta < 2 {
+                as_log("finish after:\(delta)")
+                DispatchQueue.main.asyncAfter(deadline: DispatchTime.now() + DispatchTimeInterval.milliseconds(Int(ceil(delta * 1000)))) {[weak self] in
+                    self?.state = .playbackCompleted
+                }
+            } else if delta < 1 {
+                state = .playbackCompleted
+            } else {
+                as_log("closeAndSignalError: not playing end of file")
+                closeAndSignalError(code: .network, errorDescription: "not playing end of file")
+            }
         }
     }
     
@@ -1507,7 +1521,7 @@ fileprivate extension AudioStream {
         _packetQueueLock.lock()
         // Dequeue one packet per time for the decoder
         let f = _playPacket
-        guard let front = f else {
+        guard var front = f else {
             /* Don't deadlock */
             as_log("Run Out Of Data")
             _packetQueueLock.unlock()
@@ -1539,7 +1553,18 @@ fileprivate extension AudioStream {
         outDataPacketDescription?.pointee = desc
         _packetsList = desc
         
+        let next = front.next
+        if next == nil {
+            let target = front.identifier + 1
+            let available = _packetSets.filter({ (packst) -> Bool in
+                return packst.identifier == target
+            })
+            if let here = available.first {
+                front.next = here
+            }
+        }
         _playPacket = front.next
+        
         let raw = Unmanaged<QueuedPacket>.passUnretained(front).toOpaque()
         _processedPackets.insert(raw, at: 0)
 //        as_log("encoderDataCallback 5: unlock")
@@ -1578,7 +1603,7 @@ fileprivate extension AudioStream {
             var ioFlags = AudioFileStreamSeekFlags.offsetIsEstimated
             var packetAlignedByteOffset = Int64()
             let seekPacket = Int64(floor((duration * _seekOffset) / Float(packetDuration)))
-            _packetIdentifier = UInt64(seekPacket)
+            _playingPacketIdentifier = UInt64(seekPacket)
             if let stream = _audioFileStream {
                 let err = AudioFileStreamSeek(stream, seekPacket, &packetAlignedByteOffset, &ioFlags)
                 if err == noErr {
@@ -1604,7 +1629,7 @@ fileprivate extension AudioStream {
             _packetQueueLock.lock()
             var cur = _queuedHead
             while cur != nil {
-                if cur?.identifier == _packetIdentifier {
+                if cur?.identifier == _playingPacketIdentifier {
                     foundCachedPacket = true
                     seekPacket = cur
                     break
@@ -1663,6 +1688,7 @@ fileprivate extension AudioStream {
             // Found the packet from the cache, let's use the cache directly.
             _packetQueueLock.lock()
             _playPacket = seekPacket
+            
             _packetQueueLock.unlock()
             _discontinuity = true
             state = .playing
@@ -1824,8 +1850,11 @@ fileprivate extension AudioStream {
                     _queuedTail = packet
                     _playPacket = packet
                 } else {
-                    _queuedTail?.next = packet
-                    _queuedTail = packet
+                    let currentID = _queuedTail?.identifier ?? 0
+                    if packet.identifier == currentID + 1 {
+                        _queuedTail?.next = packet
+                        _queuedTail = packet
+                    }
                 }
                 _packetSets.insert(packet)
                 _cachedDataSize += Int(size)
