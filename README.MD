@@ -9,7 +9,7 @@ why?
 
 Features
 ---
-- [x] Digest(Tested), Basic(not tested) proxy support 
+- [x] Digest(Tested), Basic(not tested) proxy support
 
 - [x] CPU-friendly design(4% - 6%)
 
@@ -32,3 +32,7 @@ Features
 - [x] custom logging module and logging into file supported
 
 - [ ] FLAC support
+
+License
+---
+See [LICENSE](https://github.com/CodeEagle/FreePlayer/blob/master/LICENSE) for the license.
