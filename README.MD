@@ -25,7 +25,7 @@ Features
 
 - [x] Preloading: playback can start immediately without needing to wait for buffering
 
-- [ ] Record: support recording the stream contents to a file
+- [x] Record: support recording the stream contents to a file
 
 - [ ] Access the PCM audio samples: as an example, a visualizer is included
 
