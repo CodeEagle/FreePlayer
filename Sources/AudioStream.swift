@@ -6,7 +6,6 @@
 //  Copyright © 2017年 Lincoln Law. All rights reserved.
 //
 import AudioToolbox
-import CommonCrypto
 // MARK: - AudioStreamDelegate
 /// AudioStreamDelegate
 protocol AudioStreamDelegate: class {
@@ -1871,14 +1870,10 @@ extension AudioStream {
 
 extension String {
     func sha256() -> String {
-        guard let messageData = data(using: .utf8) else { return self }
-        var digestData = Data(count: Int(CC_SHA256_DIGEST_LENGTH))
-        _ = digestData.withUnsafeMutableBytes {digestBytes in
-            messageData.withUnsafeBytes {messageBytes in
-                CC_SHA256(messageBytes, CC_LONG(messageData.count), digestBytes)
-            }
-        }
-        let shaHex = digestData.map { String(format: "%02x", $0) }.joined()
-        return shaHex
+        guard let dat = data(using: .utf8) else { return self }
+        let sub = dat.base64EncodedString()
+        let range = NSMakeRange(0, max(24, sub.count))
+        let final = sub.substring(with: Range.init(range, in: sub)!)
+        return final
     }
 }

@@ -6,20 +6,6 @@
 	objectVersion = 46;
 	objects = {
 
-/* Begin PBXAggregateTarget section */
-		1009B8AA1F298948009F2336 /* CommonCrypto */ = {
-			isa = PBXAggregateTarget;
-			buildConfigurationList = 1009B8AB1F298949009F2336 /* Build configuration list for PBXAggregateTarget "CommonCrypto" */;
-			buildPhases = (
-				1009B8AE1F29894E009F2336 /* [Generate] */,
-			);
-			dependencies = (
-			);
-			name = CommonCrypto;
-			productName = CommonCrypto;
-		};
-/* End PBXAggregateTarget section */
-
 /* Begin PBXBuildFile section */
 		1009B8851F2982A3009F2336 /* DisplayLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1009B8841F29829D009F2336 /* DisplayLink.swift */; };
 		1009B8931F2983B2009F2336 /* FreePlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 106AD7E91E6521E70020357C /* FreePlayer.swift */; };
@@ -86,26 +72,12 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		1009B8AF1F298982009F2336 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 10A64BF41E593C81004F77BC /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 1009B8AA1F298948009F2336;
-			remoteInfo = CommonCrypto;
-		};
 		1009B8C71F298CFE009F2336 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 10A64BF41E593C81004F77BC /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = 1009B88A1F2983A9009F2336;
 			remoteInfo = "FreePlayer macOS";
-		};
-		1009B8D51F299E68009F2336 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 10A64BF41E593C81004F77BC /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 1009B8AA1F298948009F2336;
-			remoteInfo = CommonCrypto;
 		};
 		1060865E1E5C168B00A6F7CB /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -395,7 +367,6 @@
 			buildRules = (
 			);
 			dependencies = (
-				1009B8D61F299E68009F2336 /* PBXTargetDependency */,
 			);
 			name = "FreePlayer macOS";
 			productName = "FreePlayer macOS";
@@ -452,7 +423,6 @@
 			buildRules = (
 			);
 			dependencies = (
-				1009B8B01F298982009F2336 /* PBXTargetDependency */,
 			);
 			name = FreePlayer;
 			productName = FreePlayer;
@@ -488,10 +458,6 @@
 				ORGANIZATIONNAME = "Lincoln Law";
 				TargetAttributes = {
 					1009B88A1F2983A9009F2336 = {
-						CreatedOnToolsVersion = 9.0;
-						DevelopmentTeam = L5W9FHSX92;
-					};
-					1009B8AA1F298948009F2336 = {
 						CreatedOnToolsVersion = 9.0;
 						DevelopmentTeam = L5W9FHSX92;
 					};
@@ -540,7 +506,6 @@
 				10A64C051E593C81004F77BC /* FreePlayerTests */,
 				106086491E5C167400A6F7CB /* FPDemo */,
 				1009B88A1F2983A9009F2336 /* FreePlayer macOS */,
-				1009B8AA1F298948009F2336 /* CommonCrypto */,
 				1009B8B41F298CF7009F2336 /* FreePlayerOSXDemo */,
 			);
 		};
@@ -596,23 +561,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
-
-/* Begin PBXShellScriptBuildPhase section */
-		1009B8AE1F29894E009F2336 /* [Generate] */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputPaths = (
-			);
-			name = "[Generate]";
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "mkdir -p \"${BUILT_PRODUCTS_DIR}/CommonCrypto\"\nmac=`dirname ${BUILT_PRODUCTS_DIR}`\nmacDebug=\"$mac/Debug\"\nmacRelease=\"$mac/Release\"\nmacSDKROOT=\"${DEVELOPER_SDK_DIR}/MacOSX.sdk\"\n\nmkdir -p \"${BUILT_PRODUCTS_DIR}/CommonCrypto\"\nmkdir -p \"$macDebug/CommonCrypto\"\nmkdir -p \"$macRelease/CommonCrypto\"\n\ncat <<EOF > \"${BUILT_PRODUCTS_DIR}/CommonCrypto/module.modulemap\"\nmodule CommonCrypto [system] {\n    header \"${SDKROOT}/usr/include/CommonCrypto/CommonCrypto.h\"\n    export *\n}\nEOF\n\ncat <<EOF > \"$macDebug/CommonCrypto/module.modulemap\"\nmodule CommonCrypto [system] {\n    header \"$macSDKROOT/usr/include/CommonCrypto/CommonCrypto.h\"\n    export *\n}\nEOF\n\ncat <<EOF > \"$macRelease/CommonCrypto/module.modulemap\"\nmodule CommonCrypto [system] {\n    header \"$macSDKROOT/usr/include/CommonCrypto/CommonCrypto.h\"\n    export *\n}\nEOF";
-		};
-/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		1009B8861F2983A9009F2336 /* Sources */ = {
@@ -691,20 +639,10 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		1009B8B01F298982009F2336 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 1009B8AA1F298948009F2336 /* CommonCrypto */;
-			targetProxy = 1009B8AF1F298982009F2336 /* PBXContainerItemProxy */;
-		};
 		1009B8C81F298CFE009F2336 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 1009B88A1F2983A9009F2336 /* FreePlayer macOS */;
 			targetProxy = 1009B8C71F298CFE009F2336 /* PBXContainerItemProxy */;
-		};
-		1009B8D61F299E68009F2336 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 1009B8AA1F298948009F2336 /* CommonCrypto */;
-			targetProxy = 1009B8D51F299E68009F2336 /* PBXContainerItemProxy */;
 		};
 		1060865F1E5C168B00A6F7CB /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -761,10 +699,7 @@
 				DYLIB_INSTALL_NAME_BASE = "@rpath";
 				FRAMEWORK_VERSION = A;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
-				HEADER_SEARCH_PATHS = (
-					"$(inherited)",
-					"${BUILT_PRODUCTS_DIR}/CommonCrypto",
-				);
+				HEADER_SEARCH_PATHS = "$(inherited)";
 				INFOPLIST_FILE = FreePlayer/Info.plist;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks @loader_path/Frameworks";
@@ -792,10 +727,7 @@
 				DYLIB_INSTALL_NAME_BASE = "@rpath";
 				FRAMEWORK_VERSION = A;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
-				HEADER_SEARCH_PATHS = (
-					"$(inherited)",
-					"${BUILT_PRODUCTS_DIR}/CommonCrypto",
-				);
+				HEADER_SEARCH_PATHS = "$(inherited)";
 				INFOPLIST_FILE = FreePlayer/Info.plist;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks @loader_path/Frameworks";
@@ -805,22 +737,6 @@
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 4.0;
-			};
-			name = Release;
-		};
-		1009B8AC1F298949009F2336 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				DEVELOPMENT_TEAM = L5W9FHSX92;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-			};
-			name = Debug;
-		};
-		1009B8AD1F298949009F2336 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				DEVELOPMENT_TEAM = L5W9FHSX92;
-				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
 			name = Release;
 		};
@@ -1021,10 +937,7 @@
 				DYLIB_COMPATIBILITY_VERSION = 1;
 				DYLIB_CURRENT_VERSION = 1;
 				DYLIB_INSTALL_NAME_BASE = "@rpath";
-				HEADER_SEARCH_PATHS = (
-					"$(inherited)",
-					"${BUILT_PRODUCTS_DIR}/CommonCrypto",
-				);
+				HEADER_SEARCH_PATHS = "$(inherited)";
 				INFOPLIST_FILE = FreePlayer/Info.plist;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
@@ -1051,10 +964,7 @@
 				DYLIB_COMPATIBILITY_VERSION = 1;
 				DYLIB_CURRENT_VERSION = 1;
 				DYLIB_INSTALL_NAME_BASE = "@rpath";
-				HEADER_SEARCH_PATHS = (
-					"$(inherited)",
-					"${BUILT_PRODUCTS_DIR}/CommonCrypto",
-				);
+				HEADER_SEARCH_PATHS = "$(inherited)";
 				INFOPLIST_FILE = FreePlayer/Info.plist;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
@@ -1104,15 +1014,6 @@
 			buildConfigurations = (
 				1009B8911F2983A9009F2336 /* Debug */,
 				1009B8921F2983A9009F2336 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		1009B8AB1F298949009F2336 /* Build configuration list for PBXAggregateTarget "CommonCrypto" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				1009B8AC1F298949009F2336 /* Debug */,
-				1009B8AD1F298949009F2336 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
