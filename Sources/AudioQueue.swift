@@ -48,28 +48,28 @@ final class AudioQueue {
         return s
     }
     
-    fileprivate var _state: State = .unknown
-    fileprivate var _outAQ: AudioQueueRef?// the audio queue
+    private var _state: State = .unknown
+    private var _outAQ: AudioQueueRef?// the audio queue
     
-    fileprivate var _audioQueueBuffer: UnsafeMutablePointer<AudioQueueBufferRef?>?// audio queue buffers
-    fileprivate var _packetDescs: [AudioStreamPacketDescription] = []// packet descriptions for enqueuing audio
+    private var _audioQueueBuffer: UnsafeMutablePointer<AudioQueueBufferRef?>?// audio queue buffers
+    private var _packetDescs: [AudioStreamPacketDescription] = []// packet descriptions for enqueuing audio
     // the index of the audioQueueBuffer that is being filled
-    fileprivate var _fillBufferIndex = UInt32()
+    private var _fillBufferIndex = UInt32()
     // how many bytes have been filled
-    fileprivate var _bytesFilled = UInt32()
+    private var _bytesFilled = UInt32()
     // how many packets have been filled
-    fileprivate var _packetsFilled = UInt32()
+    private var _packetsFilled = UInt32()
     // how many buffers are used
-    fileprivate var _buffersUsed = UInt32()
+    private var _buffersUsed = UInt32()
     // flag to indicate that the queue has been started
-    fileprivate var _audioQueueStarted = false
+    private var _audioQueueStarted = false
     // flags to indicate that a buffer is still in use
-    fileprivate var _bufferInUse: UnsafeMutablePointer<Bool>?
-    fileprivate var _levelMeteringEnabled = false
+    private var _bufferInUse: UnsafeMutablePointer<Bool>?
+    private var _levelMeteringEnabled = false
     
-    fileprivate var _mutex: OSSpinLock = OS_SPINLOCK_INIT
-    fileprivate var _bufferInUseMutex: pthread_mutex_t = .init()
-    fileprivate var _bufferFreeCondition: pthread_cond_t = .init()
+    private var _mutex: OSSpinLock = OS_SPINLOCK_INIT
+    private var _bufferInUseMutex: pthread_mutex_t = .init()
+    private var _bufferFreeCondition: pthread_cond_t = .init()
     
 
     deinit {
@@ -142,12 +142,17 @@ extension AudioQueue {
         pthread_cond_signal(&_bufferFreeCondition)
         pthread_mutex_unlock(&_bufferInUseMutex)
         aq_log("enter")
-        guard let queue = _outAQ else { return }
-        if (AudioQueueFlush(queue) != 0) {
+        _mutex.lock()
+        guard let queue = _outAQ else {
+            _mutex.unlock()
+            return
+        }
+        _mutex.unlock()
+        if AudioQueueFlush(queue) != 0 {
             aq_log("AudioQueueFlush failed!")
         }
         
-        if (immediately) {
+        if immediately {
             let this = Unmanaged.passUnretained(self).toOpaque()
             AudioQueueRemovePropertyListener(queue,
                                              kAudioQueueProperty_IsRunning,
@@ -353,7 +358,7 @@ extension AudioQueue {
 // MARK: - Private
 extension AudioQueue {
     
-    fileprivate func cleanup() {
+    private func cleanup() {
         
         _mutex.lock()
         guard let queue = _outAQ else {
@@ -385,7 +390,7 @@ extension AudioQueue {
         lastError = noErr
     }
     
-    fileprivate func enqueueBuffer() {
+    private func enqueueBuffer() {
         guard let queue = _outAQ else { return }
         let index = Int(_fillBufferIndex)
         aq_assert(_bufferInUse?[index] == false)
@@ -443,7 +448,7 @@ extension AudioQueue {
 // MARK: - Call back
 extension AudioQueue {
     // MARK: CallBacks
-    fileprivate static var audioQueueIsRunningCallback: AudioQueuePropertyListenerProc {
+    private static var audioQueueIsRunningCallback: AudioQueuePropertyListenerProc {
         return { inClientData, inAQ, inID in
             guard let audioQueue = inClientData?.to(object: AudioQueue.self) else { return }
             aq_log("enter")
@@ -465,7 +470,7 @@ extension AudioQueue {
     
     // this is called by the audio queue when it has finished decoding our data.
     // The buffer is now free to be reused.
-    fileprivate static var audioQueueOutputCallback: AudioQueueOutputCallback {
+    private static var audioQueueOutputCallback: AudioQueueOutputCallback {
         return { (inClientData, inAQ, inBuffer) in
             guard let audioQueue = inClientData?.to(object: AudioQueue.self), let audioQueueBuffer = audioQueue._audioQueueBuffer else { return }
             

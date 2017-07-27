@@ -11,14 +11,14 @@ import AudioToolbox
 /// FileStream
 final class FileStream {
     weak var delegate: StreamInputDelegate?
-    fileprivate var _url: URL?
-    fileprivate var _readStream: CFReadStream?
-    fileprivate var _scheduledInRunLoop = false
-    fileprivate var _readPending = false
-    fileprivate var _contentType: String?
-    fileprivate var _position = Position()
-    fileprivate var _fileReadBuffer: UnsafeMutablePointer<UInt8>?
-    fileprivate var _id3Parser: ID3Parser?
+    private var _url: URL?
+    private var _readStream: CFReadStream?
+    private var _scheduledInRunLoop = false
+    private var _readPending = false
+    private var _contentType: String?
+    private var _position = Position()
+    private var _fileReadBuffer: UnsafeMutablePointer<UInt8>?
+    private var _id3Parser: ID3Parser?
     deinit {
         close()
         _id3Parser = nil
@@ -66,7 +66,7 @@ extension FileStream: StreamInputProtocol {
         var pSize: CFNumber? = nil
         CFURLCopyResourcePropertyForKey(u as CFURL, kCFURLFileSizeKey, &pSize, &pError)
         if let size = pSize {
-            return UInt64(size)
+            return UInt64(truncating: size)
         }
         return  0
     }

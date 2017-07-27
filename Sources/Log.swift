@@ -51,10 +51,12 @@ public struct FPLogger {
         logToFile = UserDefaults.standard.bool(forKey: "FreePlayer.LogToFile")
         toggleEnableLog()
         DispatchQueue.global(qos: .userInitiated).setTarget(queue: _logQueue)
+        #if !os(OSX)
         NotificationCenter.default.addObserver(forName: NSNotification.Name.UIApplicationWillTerminate, object: nil, queue: OperationQueue.main) { (_) in
             // 崩溃前保存记录
             FPLogger.shared.logToFile = false
         }
+        #endif
     }
     /// 开启打印
     ///
@@ -99,9 +101,9 @@ public struct FPLogger {
             }
         }
 
-        static var All: Set<Module> { return [.audioQueue, .audioStream, .httpStream, .fileStream, .cachingStream, .freePlayer, .id3Parser] }
+        public static var All: Set<Module> { return [.audioQueue, .audioStream, .httpStream, .fileStream, .cachingStream, .freePlayer, .id3Parser] }
         
-        fileprivate static var _lastMessage: String?
+        private static var _lastMessage: String?
         func log(msg: String, method: String = #function) {
             if Module._lastMessage == msg { return }
             Module._lastMessage = msg

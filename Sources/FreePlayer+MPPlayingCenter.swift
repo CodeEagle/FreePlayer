@@ -7,10 +7,11 @@
 //
 
 import MediaPlayer
-#if os(iOS)
+
     public final class NowPlayingInfo: NSObject {
         public static var shared = NowPlayingInfo()
         var session = URLSession.shared
+        #if os(iOS)
         public var name = "" { didSet { FPLogger.write(msg: "🎹:\(name)") } }
         public var artist = ""
         public var album = ""
@@ -118,7 +119,7 @@ import MediaPlayer
             UIApplication.shared.endBackgroundTask(_backgroundTask)
             _backgroundTask = UIBackgroundTaskInvalid
         }
-        
+        #endif
         func updateProxy() {
             let config = StreamConfiguration.shared
             if  config.usingCustomProxy {
@@ -137,6 +138,7 @@ import MediaPlayer
                 NowPlayingInfo.shared.session = URLSession.shared
             }
         }
+        
     }
     
     // MARK: - URLSessionDelegate, URLSessionTaskDelegate
@@ -152,5 +154,4 @@ import MediaPlayer
             }
         }
     }
-#endif
 

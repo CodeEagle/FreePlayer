@@ -25,7 +25,7 @@ class FreePlayerTests: XCTestCase {
     
     func testHttpStream() {
         let hs = HttpStream()
-        hs.createReadStream(from: URL(string: "http://mp3-cdn.luoo.net/low/luoo/radio896/02.mp3"))
+        _ = hs.createReadStream(from: URL(string: "http://mp3-cdn.luoo.net/low/luoo/radio896/02.mp3"))
     }
     
     func testPerformanceExample() {
@@ -39,8 +39,8 @@ class FreePlayerTests: XCTestCase {
         let expectation: XCTestExpectation = self.expectation(description: "❌:Timeout")
         block(expectation)
         self.waitForExpectations(timeout: timeout) { (error) in
-            if error != nil {
-                XCTFail("time out: \(error)")
+            if let err = error {
+                XCTFail("time out: \(err)")
             } else {
                 XCTAssert(true, "success")
             }

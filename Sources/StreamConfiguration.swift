@@ -86,8 +86,11 @@ public struct StreamConfiguration {
     public var enableTimeAndPitchConversion = false
     /** 需要内容类型检查 */
     public var requireStrictContentTypeChecking = false
-    /** 需要网络播放检查 */
-    public var requireNetworkPermision = true
+    #if !os(OSX)
+        /** 需要网络播放检查 */
+        public var requireNetworkPermision = true
+    #endif
+    
     /** 自动填充ID3的信息到 NowPlayingCenter */
     public var autoFillID3InfoToNowPlayingCenter = false
     /** 使用自定义代理 */

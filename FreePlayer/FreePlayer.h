@@ -6,15 +6,14 @@
 //  Copyright © 2017年 Lincoln Law. All rights reserved.
 //
 
-#import <UIKit/UIKit.h>
-
-
+@import Foundation;
 //! Project version number for FreePlayer.
 FOUNDATION_EXPORT double FreePlayerVersionNumber;
 
 //! Project version string for FreePlayer.
 FOUNDATION_EXPORT const unsigned char FreePlayerVersionString[];
 
-// In this header, you should import all the public headers of your framework using statements like #import <FreePlayer/PublicHeader.h>
+// In this header, you should import all the public headers of your framework using statements like
+
 
 

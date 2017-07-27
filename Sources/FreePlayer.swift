@@ -17,24 +17,28 @@ public final class FreePlayer {
     public var onStateChange: ((AudioStreamState) -> Void)?
     public var onComplete: (() -> Void)?
     public var onFailure: ((AudioStreamError, String?) -> Void)?
-    public var networkPermisionHandler: FPNetworkUsingPermisionHandler? {
-        didSet { _audioStream?.networkPermisionHandler = networkPermisionHandler }
-    }
+    #if !os(OSX)
+        public var networkPermisionHandler: FPNetworkUsingPermisionHandler? {
+            didSet { _audioStream?.networkPermisionHandler = networkPermisionHandler }
+        }
+    #endif
     
-    fileprivate var _audioStream: AudioStream?
-    fileprivate var _url: URL?
-    fileprivate var _reachability: Reachability?
-    fileprivate var _backgroundTask = UIBackgroundTaskInvalid
-    fileprivate var _lastSeekByteOffset: Position?
-    fileprivate var _propertyLock: OSSpinLock = OS_SPINLOCK_INIT
-    fileprivate var _internetConnectionAvailable = true
+    private var _audioStream: AudioStream?
+    private var _url: URL?
+    private var _reachability: Reachability?
+    #if !os(OSX)
+        private var _backgroundTask = UIBackgroundTaskInvalid
+    #endif
+    private var _lastSeekByteOffset: Position?
+    private var _propertyLock: OSSpinLock = OS_SPINLOCK_INIT
+    private var _internetConnectionAvailable = true
     
-    fileprivate var _wasInterrupted = false
-    fileprivate var _wasDisconnected = false
-    fileprivate var _wasPaused = false
+    private var _wasInterrupted = false
+    private var _wasDisconnected = false
+    private var _wasPaused = false
 
-    fileprivate var _retryCount = 0
-    fileprivate var _stopHandlerNetworkChange = false
+    private var _retryCount = 0
+    private var _stopHandlerNetworkChange = false
 
     deinit {
         assert(Thread.isMainThread)
@@ -55,7 +59,10 @@ public final class FreePlayer {
         reset()
     }
     
+    
+    
     private func addInteruptOb() {
+        #if !os(OSX)
         /// RouteChange
         NotificationCenter.default.addObserver(forName: .AVAudioSessionRouteChange, object: nil, queue: OperationQueue.main) { [weak self](note) -> Void in
             let interuptionDict = note.userInfo
@@ -80,21 +87,25 @@ public final class FreePlayer {
                 sself.resume()
             }
         }
+        #endif
     }
     
-    fileprivate func reset() {
+    
+    private func reset() {
         _audioStream?.forceStop = true
         _audioStream = AudioStream()
         _audioStream?.delegate = self
-        _audioStream?.networkPermisionHandler = networkPermisionHandler
-        _audioStream?.networkPermisionHandlerExecuteResponse = {[weak self] in
-            guard let sself = self else { return }
-            DispatchQueue.main.async {
-                sself._internetConnectionAvailable = true
-                sself._retryCount = 0
-                sself.play()
+        #if !os(OSX)
+            _audioStream?.networkPermisionHandler = networkPermisionHandler
+            _audioStream?.networkPermisionHandlerExecuteResponse = {[weak self] in
+                guard let sself = self else { return }
+                DispatchQueue.main.async {
+                    sself._internetConnectionAvailable = true
+                    sself._retryCount = 0
+                    sself.play()
+                }
             }
-        }
+        #endif
         _audioStream?.set(url: url)
         _retryCount = 0
         _internetConnectionAvailable = true
@@ -357,19 +368,18 @@ extension FreePlayer {
     func notify(state: AudioStreamState) {
         switch state {
         case .stopped:
-            if StreamConfiguration.shared.automaticAudioSessionHandlingEnabled {
-                try? AVAudioSession.sharedInstance().setActive(false)
-            }
             #if os(iOS)
+                if StreamConfiguration.shared.automaticAudioSessionHandlingEnabled {
+                    try? AVAudioSession.sharedInstance().setActive(false)
+                }
                 NowPlayingInfo.shared.pause(elapsedPlayback: Double(playbackPosition.timePlayed))
             #endif
         case .buffering: _internetConnectionAvailable = true
         case .playing:
-            
-            if StreamConfiguration.shared.automaticAudioSessionHandlingEnabled {
-                try? AVAudioSession.sharedInstance().setActive(true)
-            }
             #if os(iOS)
+                if StreamConfiguration.shared.automaticAudioSessionHandlingEnabled {
+                    try? AVAudioSession.sharedInstance().setActive(true)
+                }
                 let duration = Int(ceil(durationInSeconds))
                 if NowPlayingInfo.shared.duration != duration {
                     NowPlayingInfo.shared.duration = duration
@@ -452,7 +462,7 @@ extension FreePlayer {
         }
     }
     
-    fileprivate func startReachability() {
+    private func startReachability() {
         _stopHandlerNetworkChange = false
         guard _reachability == nil else { return }
         _reachability = Reachability(hostname: "www.baidu.com")
@@ -474,11 +484,24 @@ extension FreePlayer {
 extension FreePlayer: AudioStreamDelegate {
     func audioStreamStateChanged(state: AudioStreamState) {
         fp_log("state:\(state)")
-        if #available(iOS 10.0, *) {
-            RunLoop.current.perform {
-                self.notify(state: state)
+        func run() { notify(state: state) }
+        #if !os(OSX)
+            if #available(iOS 10.0, *) {
+                RunLoop.current.perform {
+                    self.notify(state: state)
+                }
+            } else {
+                run()
             }
-        } else { notify(state: state) }
+        #else
+            if #available(OSX 10.12, *) {
+                RunLoop.current.perform {
+                    self.notify(state: state)
+                }
+            } else {
+                run()
+            }
+        #endif
     }
     
     func audioStreamErrorOccurred(errorCode: AudioStreamError , errorDescription: String) {

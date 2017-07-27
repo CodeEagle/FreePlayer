@@ -6,7 +6,7 @@
 //  Copyright © 2017年 Lincoln Law. All rights reserved.
 //
 import AudioToolbox
-import CCommonCrypto
+import CommonCrypto
 // MARK: - AudioStreamDelegate
 /// AudioStreamDelegate
 protocol AudioStreamDelegate: class {
@@ -21,109 +21,116 @@ protocol AudioStreamDelegate: class {
 /// AudioStream
 final class AudioStream {
     
-    fileprivate static let kAudioStreamBitrateBufferSize = 50
+    private static let kAudioStreamBitrateBufferSize = 50
     
     weak var delegate: AudioStreamDelegate?
     
     var contentType = ""
-    var networkPermisionHandler: FPNetworkUsingPermisionHandler?
-    var networkPermisionHandlerExecuteResponse: (() -> ())?
+    #if !os(OSX)
+        var networkPermisionHandler: FPNetworkUsingPermisionHandler?
+        var networkPermisionHandlerExecuteResponse: (() -> ())?
+    #endif
     
-    fileprivate var _inputStreamRunning = false
-    fileprivate var _audioStreamParserRunning = false
-    fileprivate var _initialBufferingCompleted = false
-    fileprivate var _discontinuity = false
-    fileprivate var _preloading = false
-    fileprivate var _audioQueueConsumedPackets = false
     
-    fileprivate var _outputVolume = Float(1)
-    fileprivate var _volumeBeforeSeek = Float(1)
-    fileprivate var _animating = false
-    fileprivate lazy var _increaseDisplayLink: CADisplayLink = {
-        let link = CADisplayLink(target: self, selector: #selector(AudioStream.volumeUp))
-        link.isPaused = true
-        link.add(to: RunLoop.current, forMode: RunLoopMode.commonModes)
+    private var _inputStreamRunning = false
+    private var _audioStreamParserRunning = false
+    private var _initialBufferingCompleted = false
+    private var _discontinuity = false
+    private var _preloading = false
+    private var _audioQueueConsumedPackets = false
+    
+    private var _outputVolume = Float(1)
+    private var _volumeBeforeSeek = Float(1)
+    private var _animating = false
+    private lazy var _increaseDisplayLink: FreeDisplayLink = {
+        let link = FreeDisplayLink(update: {[weak self] in
+            self?.volumeUp()
+        })
+        link.stop()
         return link
     }()
     
-    fileprivate var _urlUsingNetwork: URL?
+    private var _urlUsingNetwork: URL?
     
-    fileprivate var _packetIdentifier = UInt64()
-    fileprivate var _playingPacketIdentifier = UInt64()
-    fileprivate var _dataOffset = UInt64()
-    fileprivate var _seekOffset = Float()
-    fileprivate var _bounceCount = Int()
-    fileprivate var _firstBufferingTime = CFAbsoluteTime()
+    private var _packetIdentifier = UInt64()
+    private var _playingPacketIdentifier = UInt64()
+    private var _dataOffset = UInt64()
+    private var _seekOffset = Float()
+    private var _bounceCount = Int()
+    private var _firstBufferingTime = CFAbsoluteTime()
     
-    fileprivate var _strictContentTypeChecking = false
-    fileprivate var _defaultContentType = "audio/mpeg"
+    private var _strictContentTypeChecking = false
+    private var _defaultContentType = "audio/mpeg"
     
-    fileprivate var _defaultContentLength = UInt64()
-    fileprivate var _contentLength = UInt64()
-    fileprivate var _originalContentLength = UInt64()
-    fileprivate var _bytesReceived = UInt64()
+    private var _defaultContentLength = UInt64()
+    private var _contentLength = UInt64()
+    private var _originalContentLength = UInt64()
+    private var _bytesReceived = UInt64()
     
-    fileprivate var _streamOpenPosition = Position()
-    fileprivate var _currentPlaybackPosition = PlaybackPosition() /* record where it has played to */
+    private var _streamOpenPosition = Position()
+    private var _currentPlaybackPosition = PlaybackPosition() /* record where it has played to */
     
-    fileprivate var _inputStream: StreamInputProtocol?
-    fileprivate var _audioQueue: AudioQueue?
-    fileprivate var _state = AudioStreamState.stopped
+    private var _inputStream: StreamInputProtocol?
+    private var _audioQueue: AudioQueue?
+    private var _state = AudioStreamState.stopped
     
-    fileprivate var _fileOutput: StreamOutputManager?
-    fileprivate var _fileOutputURL: URL?
+    private var _fileOutput: StreamOutputManager?
+    private var _fileOutputURL: URL?
     
-    fileprivate weak var _queuedHead: QueuedPacket?
-    fileprivate weak var _queuedTail: QueuedPacket?
-    fileprivate weak var _playPacket: QueuedPacket?
-    fileprivate var _packetSets: Set<QueuedPacket> = []
-    fileprivate var _processedPackets: [UnsafeMutableRawPointer?] = []
-    fileprivate var _packetsList: UnsafeMutablePointer<AudioStreamPacketDescription>?
+    private weak var _queuedHead: QueuedPacket?
+    private weak var _queuedTail: QueuedPacket?
+    private weak var _playPacket: QueuedPacket?
+    private var _packetSets: Set<QueuedPacket> = []
+    private var _processedPackets: [UnsafeMutableRawPointer?] = []
+    private var _packetsList: UnsafeMutablePointer<AudioStreamPacketDescription>?
     
-    fileprivate var _watchdogTimer: CFRunLoopTimer?
-    fileprivate var _seekTimer: CFRunLoopTimer?
-    fileprivate var _inputStreamTimer: CFRunLoopTimer?
-    fileprivate var _stateSetTimer: CFRunLoopTimer?
+    private var _watchdogTimer: CFRunLoopTimer?
+    private var _seekTimer: CFRunLoopTimer?
+    private var _inputStreamTimer: CFRunLoopTimer?
+    private var _stateSetTimer: CFRunLoopTimer?
     
-    fileprivate var _numPacketsToRewind = UInt()
-    fileprivate var _cachedDataSize = Int()
+    private var _numPacketsToRewind = UInt()
+    private var _cachedDataSize = Int()
     
-    fileprivate var _audioDataByteCount = UInt64()
-    fileprivate var _audioDataPacketCount = UInt64()
-    fileprivate var _bitRate = UInt32()
-    fileprivate var _metaDataSizeInBytes = UInt32()
+    private var _audioDataByteCount = UInt64()
+    private var _audioDataPacketCount = UInt64()
+    private var _bitRate = UInt32()
+    private var _metaDataSizeInBytes = UInt32()
     
-    fileprivate var _packetDuration = Double()
-    fileprivate var _bitrateBuffer: [Double] = Array(repeating: 0, count: kAudioStreamBitrateBufferSize)
-    fileprivate var _bitrateBufferIndex = 0
+    private var _packetDuration = Double()
+    private var _bitrateBuffer: [Double] = Array(repeating: 0, count: kAudioStreamBitrateBufferSize)
+    private var _bitrateBufferIndex = 0
     
-    fileprivate var _decodeRunLoop: CFRunLoop?
-    fileprivate var _mainRunLoop: CFRunLoop?
-    fileprivate var _decodeQueue: DispatchQueue?
-    fileprivate var _decodeTimer: DispatchSourceTimer?
+    private var _decodeRunLoop: CFRunLoop?
+    private var _mainRunLoop: CFRunLoop?
+    private var _decodeQueue: DispatchQueue?
+    private var _decodeTimer: DispatchSourceTimer?
     
-    fileprivate var _audioFileStream: AudioFileStreamID?	// the audio file stream parser
-    fileprivate var _audioConverter: AudioConverterRef?
-    fileprivate var _srcFormat: AudioStreamBasicDescription?
-    fileprivate var _dstFormat: AudioStreamBasicDescription
-    fileprivate var _initializationError: OSStatus = noErr
+    private var _audioFileStream: AudioFileStreamID?	// the audio file stream parser
+    private var _audioConverter: AudioConverterRef?
+    private var _srcFormat: AudioStreamBasicDescription?
+    private var _dstFormat: AudioStreamBasicDescription
+    private var _initializationError: OSStatus = noErr
     
-    fileprivate var _outputBufferSize = UInt32()
-    fileprivate var _outputBuffer: [UInt8] = []
+    private var _outputBufferSize = UInt32()
+    private var _outputBuffer: [UInt8] = []
     
-    fileprivate var _converterRunOutOfData = false
-    fileprivate var _decoderShouldRun = false
-    fileprivate var _decoderShouldRunSetCount = 0
-    fileprivate var _decoderFailed = false
-    fileprivate var _decoderActive = false
+    private var _converterRunOutOfData = false
+    private var _decoderShouldRun = false
+    private var _decoderShouldRunSetCount = 0
+    private var _decoderFailed = false
+    private var _decoderActive = false
     
-    fileprivate var _requireNetworkPermision = false
-    fileprivate var _decodeThread: pthread_t?
+    #if !os(OSX)
+        private var _requireNetworkPermision = false
+    #endif
     
-    fileprivate var _streamStateLock: OSSpinLock = OS_SPINLOCK_INIT
-    fileprivate var _packetQueueLock: OSSpinLock = OS_SPINLOCK_INIT
+    private var _decodeThread: pthread_t?
+    
+    private var _streamStateLock: OSSpinLock = OS_SPINLOCK_INIT
+    private var _packetQueueLock: OSSpinLock = OS_SPINLOCK_INIT
     var forceStop = false
-    fileprivate var _cleaning = false
+    private var _cleaning = false
     
     deinit {
         assert(Thread.isMainThread)
@@ -133,7 +140,10 @@ final class AudioStream {
     init() {
         let config = StreamConfiguration.shared
         _strictContentTypeChecking = config.requireStrictContentTypeChecking
-        _requireNetworkPermision = config.requireNetworkPermision
+        #if !os(OSX)
+            _requireNetworkPermision = config.requireNetworkPermision
+        #endif
+        
         _outputBufferSize = UInt32(config.bufferSize)
         _outputBuffer = Array(repeating: 0, count: Int(_outputBufferSize))
         _mainRunLoop = CFRunLoopGetCurrent()
@@ -171,7 +181,7 @@ final class AudioStream {
 // MARK: Volume Fade in and out
 extension AudioStream {
     
-    fileprivate func fadeout() {
+    private func fadeout() {
         if _animating {
             volume = 0
             return
@@ -182,13 +192,13 @@ extension AudioStream {
         _increaseDisplayLink.isPaused = true
     }
     
-    fileprivate func fadein() {
+    private func fadein() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {[weak self] in
             self?._increaseDisplayLink.isPaused = false
         }
     }
     
-    @objc fileprivate func volumeUp() {
+    @objc private func volumeUp() {
         if volume >= _volumeBeforeSeek {
             _increaseDisplayLink.isPaused = true
             _animating = false
@@ -199,11 +209,11 @@ extension AudioStream {
 // MARK: Decode Loop
 extension AudioStream {
     
-    fileprivate func runDecodeloop() {
+    private func runDecodeloop() {
         let queue = DispatchQueue(label: "com.selfstudio.freeplayer.decodequeue", attributes: [])
         let timer = DispatchSource.makeTimerSource(flags: DispatchSource.TimerFlags(rawValue: 0), queue: queue)
         let pageStepTime: DispatchTimeInterval = .milliseconds(15)
-        timer.scheduleRepeating(deadline: .now() + pageStepTime, interval: pageStepTime)
+        timer.schedule(deadline: .now() + pageStepTime, repeating: pageStepTime)
         timer.setEventHandler(handler: {[weak self] in
             guard let sself = self, sself._cleaning == false else { return }
             sself.decodeloopHandler()
@@ -382,7 +392,7 @@ extension AudioStream {
 // MARK: Properties Utils
 extension AudioStream {
     
-    fileprivate var decoderShouldRun: Bool {
+    private var decoderShouldRun: Bool {
         let cstate = state
         
         _streamStateLock.lock()
@@ -396,7 +406,7 @@ extension AudioStream {
         }
     }
     
-    fileprivate var audioQueue: AudioQueue {
+    private var audioQueue: AudioQueue {
         if _audioQueue == nil {
             as_log("No audio queue, creating")
             _audioQueue = AudioQueue()
@@ -407,7 +417,7 @@ extension AudioStream {
         return _audioQueue!
     }
     
-    fileprivate func closeAudioQueue() {
+    private func closeAudioQueue() {
         if _audioQueue == nil { return }
         as_log("Releasing audio queue")
         _streamStateLock.lock()
@@ -501,7 +511,7 @@ extension AudioStream {
     
 }
 // MARK: Tools Utils
-fileprivate extension AudioStream {
+private extension AudioStream {
     
     func setCookies(for stream: AudioFileStreamID) {
         var err = noErr
@@ -694,39 +704,7 @@ fileprivate extension AudioStream {
 }
 // MARK: - Static Utils
 extension AudioStream {
-    
-    static func createIdentifier(for url: URL) -> String { return createHash(for: url.path) + ".dou" }
-    
-    private static func createHash(for id: String) -> String {
-        
-        let contentType = id as CFString
-        var buffer: [UInt8] = Array(repeating: 0, count: 4096)
-        var usedBytes = CFIndex()
-        let lossByte: UInt8 = Array("?".utf8).first!
-        let coding = CFStringBuiltInEncodings.UTF8.rawValue
-        let range = CFRangeMake(0,CFStringGetLength(contentType))
-        CFStringGetBytes(contentType, range, coding, lossByte, false, &buffer, 4096, &usedBytes)
-        let data = Data(bytes: buffer).withUnsafeBytes { (u8Ptr: UnsafePointer<UInt8>) in
-            return UnsafeRawPointer(u8Ptr)
-        }
-        var sha256 = CC_SHA256_CTX()
-        CC_SHA256_Init(&sha256)
-        CC_SHA256_Update(&sha256, data, CC_LONG(usedBytes))
-        
-        var digest: [UInt8] = Array(repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
-        CC_SHA256_Final(&digest, &sha256)
-        
-        let dsize = digest.count
-        let size = dsize * 2 + 1
-        var hash: [Int8] = Array(repeating: 0, count: size)
-        func pointer(from ha: UnsafeMutablePointer<Int8>) ->  UnsafeMutablePointer<Int8> { return ha }
-        let apointer = pointer(from: &hash)
-        for i in 0..<dsize {
-            _ = snprintf(ptr: apointer.advanced(by: 2 * i), 3, "%02x", digest[i])
-        }
-        let result = CFStringCreateWithCString(kCFAllocatorDefault, &hash, CFStringBuiltInEncodings.UTF8.rawValue) as String
-        return result
-    }
+    static func createIdentifier(for url: URL) -> String { return url.path.sha256() + ".dou" }
 }
 // MARK:  Public
 extension AudioStream {
@@ -752,7 +730,7 @@ extension AudioStream {
         }
     }
     
-    fileprivate func open(position: Position) {
+    private func open(position: Position) {
         if _inputStreamRunning || _audioStreamParserRunning {
             as_log("already running: return")
             return
@@ -809,9 +787,11 @@ extension AudioStream {
             }
         } else {
             var type: AudioStreamError = .open
-            if _requireNetworkPermision == true && _urlUsingNetwork != nil {
-                type = .networkPermission
-            }
+            #if !os(OSX)
+                if _requireNetworkPermision == true && _urlUsingNetwork != nil {
+                    type = .networkPermission
+                }
+            #endif
             _inputStreamRunning = false
             _audioStreamParserRunning = false
             closeAndSignalError(code: type, errorDescription: "Input stream open error")
@@ -1141,20 +1121,24 @@ extension AudioStream {
             _inputStream = FileStream()
         }
         _inputStream?.delegate = self
-        as_log("_requireNetworkPermision:\(_requireNetworkPermision), _urlUsingNetwork:\(_urlUsingNetwork?.absoluteString ?? "")")
-        if !_requireNetworkPermision || _urlUsingNetwork == nil {
+        #if os(OSX)
             _inputStream?.set(url: url)
-        } else {
-            if networkPermisionHandler == nil {
-                as_log("networkPermisionHandler can not be nil when _requireNetworkPermision is true")
-                assert(false)
+        #else
+            as_log("_requireNetworkPermision:\(_requireNetworkPermision), _urlUsingNetwork:\(_urlUsingNetwork?.absoluteString ?? "")")
+            if !_requireNetworkPermision || _urlUsingNetwork == nil {
+                _inputStream?.set(url: url)
+            } else {
+                if networkPermisionHandler == nil {
+                    as_log("networkPermisionHandler can not be nil when _requireNetworkPermision is true")
+                    assert(false)
+                }
+                networkPermisionHandler?({[weak self] canPlay in
+                    guard canPlay else { return }
+                    self?._inputStream?.set(url: url)
+                    self?.networkPermisionHandlerExecuteResponse?()
+                })
             }
-            networkPermisionHandler?({[weak self] canPlay in
-                guard canPlay else { return }
-                self?._inputStream?.set(url: url)
-                self?.networkPermisionHandlerExecuteResponse?()
-            })
-        }
+        #endif
     }
     
     
@@ -1167,7 +1151,7 @@ extension AudioStream {
             return fileTypeHint
         }
         switch type {
-        case "audio/mpeg": fileTypeHint = kAudioFileMP3Type
+        case "audio/mpeg", "audio/mp3": fileTypeHint = kAudioFileMP3Type
         case "audio/x-wav": fileTypeHint = kAudioFileWAVEType
         case "audio/x-aifc": fileTypeHint = kAudioFileAIFCType
         case "audio/x-aiff": fileTypeHint = kAudioFileAIFFType
@@ -1511,7 +1495,7 @@ extension AudioStream: AudioQueueDelegate {
 
 
 // MARK:  Call Backs
-fileprivate extension AudioStream {
+private extension AudioStream {
     
     // MARK: encoderDataCallback
     func encoderDataCallback(inAudioConverter: AudioConverterRef, ioNumberDataPackets: UnsafeMutablePointer<UInt32>, ioBufferList: UnsafeMutablePointer<AudioBufferList>, outDataPacketDescription: UnsafeMutablePointer<UnsafeMutablePointer<AudioStreamPacketDescription>?>?, inUserData: UnsafeMutableRawPointer?) -> OSStatus {
@@ -1521,7 +1505,7 @@ fileprivate extension AudioStream {
         _packetQueueLock.lock()
         // Dequeue one packet per time for the decoder
         let f = _playPacket
-        guard var front = f else {
+        guard let front = f else {
             /* Don't deadlock */
             as_log("Run Out Of Data")
             _packetQueueLock.unlock()
@@ -1573,7 +1557,7 @@ fileprivate extension AudioStream {
     }
     
     // MARK: seekTimerCallback
-    fileprivate func seekTimerCallback() {
+    private func seekTimerCallback() {
         
         guard let rate = _srcFormat?.mSampleRate, rate > 0, state == .seeking else { return }
         
@@ -1703,7 +1687,7 @@ fileprivate extension AudioStream {
     }
     
     // MARK: propertyValueCallback
-    fileprivate func propertyValueCallback(userData: UnsafeMutableRawPointer, inAudioFileStream: AudioFileStreamID, propertyId: AudioFileStreamPropertyID, ioFlags: UnsafeMutablePointer<AudioFileStreamPropertyFlags>) {
+    private func propertyValueCallback(userData: UnsafeMutableRawPointer, inAudioFileStream: AudioFileStreamID, propertyId: AudioFileStreamPropertyID, ioFlags: UnsafeMutablePointer<AudioFileStreamPropertyFlags>) {
         if !_audioStreamParserRunning {
             as_log("stray callback detected!")
             return
@@ -1803,7 +1787,7 @@ fileprivate extension AudioStream {
     }
     
     // MARK: streamDataCallback
-    fileprivate func streamDataCallback(inNumberBytes: UInt32, inNumberPackets: UInt32, inInputData: UnsafeRawPointer, inPacketDescriptions: UnsafeMutablePointer<AudioStreamPacketDescription>) {
+    private func streamDataCallback(inNumberBytes: UInt32, inNumberPackets: UInt32, inInputData: UnsafeRawPointer, inPacketDescriptions: UnsafeMutablePointer<AudioStreamPacketDescription>) {
         if !_audioStreamParserRunning {
             as_log("stray callback detected!")
             return
@@ -1869,7 +1853,7 @@ fileprivate extension AudioStream {
 
 // MARK: - Struct
 extension AudioStream {
-    fileprivate final class QueuedPacket: Hashable {
+    private final class QueuedPacket: Hashable {
         var identifier = UInt64()
         var desc: AudioStreamPacketDescription! = AudioStreamPacketDescription()
         weak var next: QueuedPacket?
@@ -1881,7 +1865,20 @@ extension AudioStream {
             return lhs.identifier == rhs.identifier
         }
         
-        fileprivate var hashValue: Int { return Int(identifier) }
+        var hashValue: Int { return Int(identifier) }
     }
 }
 
+extension String {
+    func sha256() -> String {
+        guard let messageData = data(using: .utf8) else { return self }
+        var digestData = Data(count: Int(CC_SHA256_DIGEST_LENGTH))
+        _ = digestData.withUnsafeMutableBytes {digestBytes in
+            messageData.withUnsafeBytes {messageBytes in
+                CC_SHA256(messageBytes, CC_LONG(messageData.count), digestBytes)
+            }
+        }
+        let shaHex = digestData.map { String(format: "%02x", $0) }.joined()
+        return shaHex
+    }
+}

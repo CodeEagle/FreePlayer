@@ -25,24 +25,24 @@ final class ID3Parser {
     
     weak var delegate: ID3ParserDelegate?
     
-    fileprivate var _state: State = .initial
-    fileprivate var _tagData: Data = Data()
-    fileprivate var _bytesReceived = UInt32()
-    fileprivate var _tagSize = UInt32() { didSet { totalTagSize() } }
-    fileprivate var _majorVersion = UInt8()
-    fileprivate var _hasFooter = false
-    fileprivate var _usesUnsynchronisation = false
-    fileprivate var _usesExtendedHeader = false
-    fileprivate var _title = ""
-    fileprivate var _performer = ""
-    fileprivate var _coverArt: Data?
-    fileprivate var _lock: OSSpinLock = OS_SPINLOCK_INIT
-    fileprivate var _parsing = false
-    fileprivate var _lastData: Data?
-    fileprivate var _queue = DispatchQueue(label: "com.selfstudio.freeplayer.idrparser")
-    fileprivate var _hasV1Tag = false { didSet { totalTagSize() } }
-    fileprivate var _v1TagDeal = false
-    fileprivate var _v2TagDeal = false
+    private var _state: State = .initial
+    private var _tagData: Data = Data()
+    private var _bytesReceived = UInt32()
+    private var _tagSize = UInt32() { didSet { totalTagSize() } }
+    private var _majorVersion = UInt8()
+    private var _hasFooter = false
+    private var _usesUnsynchronisation = false
+    private var _usesExtendedHeader = false
+    private var _title = ""
+    private var _performer = ""
+    private var _coverArt: Data?
+    private var _lock: OSSpinLock = OS_SPINLOCK_INIT
+    private var _parsing = false
+    private var _lastData: Data?
+    private var _queue = DispatchQueue(label: "com.selfstudio.freeplayer.idrparser")
+    private var _hasV1Tag = false { didSet { totalTagSize() } }
+    private var _v1TagDeal = false
+    private var _v2TagDeal = false
     enum State {
         case initial
         case parseFrames
@@ -50,7 +50,7 @@ final class ID3Parser {
         case notID3V2
     }
     
-    fileprivate struct ID3V1Length {
+    private struct ID3V1Length {
         static var header: Int { return 3 }
         static var title: Int  { return 30 }
         static var artist: Int  { return 30 }
@@ -368,7 +368,10 @@ extension ID3Parser {
                 ii = UInt32(_tagData[pos+1])
                 iii = UInt32(_tagData[pos+2])
                 iv = UInt32(_tagData[pos+3])
-                framesize = Int((i << 21) + (ii << 14) + (iii << 7) + iv)
+                let a = (i << 21)
+                let b = (ii << 14)
+                let c = (iii << 7)
+                framesize = Int( a + b + c + iv)
             } else {
                 i = UInt32(_tagData[pos])
                 ii = UInt32(_tagData[pos+1])
@@ -444,7 +447,10 @@ extension ID3Parser {
                     }
                     id3_log("Image type \(type), parsing, dataPos:\(dataPos)")
                     if _majorVersion == 3 {
-                        framesize = Int((i << 24) + (ii << 16) + (iii << 8) + iv)
+                        let a = (i << 24)
+                        let b = (ii << 16)
+                        let c = (iii << 8)
+                        framesize = Int( a + b + c + iv)
                         id3_log("framesize change due to _majorVersion 3 :\(framesize))")
                     }
                     let coverArtSize = framesize - (startPos - pos)

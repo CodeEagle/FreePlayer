@@ -19,38 +19,38 @@ final class HttpStream {
     var contentLength = UInt64()
     var errorDescription: String?
     
-    fileprivate var _url: URL?
-    fileprivate var _readStream: CFReadStream?
-    fileprivate var _scheduledInRunLoop = false
-    fileprivate var _readPending = false
-    fileprivate var _openTimer: CFRunLoopTimer?
-    fileprivate var _reopenTimes = 0
-    fileprivate var _isReadedData = false
-    fileprivate var _maxRetryCount = 10
-    fileprivate var _id3Parser: ID3Parser?
+    private var _url: URL?
+    private var _readStream: CFReadStream?
+    private var _scheduledInRunLoop = false
+    private var _readPending = false
+    private var _openTimer: CFRunLoopTimer?
+    private var _reopenTimes = 0
+    private var _isReadedData = false
+    private var _maxRetryCount = 10
+    private var _id3Parser: ID3Parser?
     
     // MARK: HTTP headers
-    fileprivate var _httpHeadersParsed = false
-    fileprivate var _bytesRead = UInt64()
+    private var _httpHeadersParsed = false
+    private var _bytesRead = UInt64()
     
     // MARK: ICY protocol
-    fileprivate var _icyStream = false
-    fileprivate var _icyHeaderCR = false
-    fileprivate var _icyHeadersRead = false
-    fileprivate var _icyHeadersParsed = false
-    fileprivate var _icyName: String?
-    fileprivate var _icyHeaderLines: [String] = []
-    fileprivate var _icyMetaDataInterval = 0
-    fileprivate var _dataByteReadCount = 0
-    fileprivate var _metaDataBytesRemaining = 0
-    fileprivate var _icyMetaData: [UInt8] = []
+    private var _icyStream = false
+    private var _icyHeaderCR = false
+    private var _icyHeadersRead = false
+    private var _icyHeadersParsed = false
+    private var _icyName: String?
+    private var _icyHeaderLines: [String] = []
+    private var _icyMetaDataInterval = 0
+    private var _dataByteReadCount = 0
+    private var _metaDataBytesRemaining = 0
+    private var _icyMetaData: [UInt8] = []
     
     // MARK: Read buffers
-    fileprivate var _icyReadBuffer:[UInt8]?
-    fileprivate var _httpReadBuffer: [UInt8]?
+    private var _icyReadBuffer:[UInt8]?
+    private var _httpReadBuffer: [UInt8]?
     
-    fileprivate var _auth: CFHTTPAuthentication?
-    fileprivate var _credentials: [String : String]?
+    private var _auth: CFHTTPAuthentication?
+    private var _credentials: [String : String]?
     
     deinit {
         close()
@@ -61,6 +61,7 @@ final class HttpStream {
         _icyReadBuffer = nil
         _url = nil
         _id3Parser = nil
+//        let task = URLSessionStreamTask()
     }
     
     init() {
@@ -70,7 +71,7 @@ final class HttpStream {
     
 }
 // MARK: Timer
-fileprivate extension HttpStream {
+private extension HttpStream {
     //start open timer
     func startOpenTimer(_ interval: CFTimeInterval) {
         if let timer = _openTimer { CFRunLoopTimerInvalidate(timer) }

@@ -25,17 +25,17 @@ final class CachingStream {
     
     var cachedComplete = false
     
-    fileprivate var _target: StreamInputProtocol
-    fileprivate var _fileOutput: StreamOutputManager?
-    fileprivate var _fileStream: FileStream
-    fileprivate var _cacheable = false
-    fileprivate var _writable = false
-    fileprivate var _useCache = false
-    fileprivate var _cacheMetaDataWritten = false
-    fileprivate var _cacheIdentifier: String?
-    fileprivate var _storeIdentifier: String?
-    fileprivate var _fileUrl: URL?
-    fileprivate var _metaDataUrl: URL?
+    private var _target: StreamInputProtocol
+    private var _fileOutput: StreamOutputManager?
+    private var _fileStream: FileStream
+    private var _cacheable = false
+    private var _writable = false
+    private var _useCache = false
+    private var _cacheMetaDataWritten = false
+    private var _cacheIdentifier: String?
+    private var _storeIdentifier: String?
+    private var _fileUrl: URL?
+    private var _metaDataUrl: URL?
     
     deinit {
         _fileOutput = nil
@@ -56,13 +56,13 @@ final class CachingStream {
 // MARK: Utils
 extension CachingStream {
     
-    fileprivate func createFileURL(with path: String?) -> URL? {
+    private func createFileURL(with path: String?) -> URL? {
         guard let p = path else { return nil }
         let escapePath = p.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)
         return URL(fileURLWithPath: escapePath ?? p)
     }
     
-    fileprivate func readMetaData() {
+    private func readMetaData() {
         guard let url = _metaDataUrl else { return }
         guard let stream = CFReadStreamCreateWithFile(kCFAllocatorDefault, url as CFURL) else { return }
         guard CFReadStreamOpen(stream) else { return }

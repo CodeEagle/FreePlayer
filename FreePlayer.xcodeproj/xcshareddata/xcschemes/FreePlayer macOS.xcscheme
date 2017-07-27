@@ -14,9 +14,9 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "10A64BFC1E593C81004F77BC"
-               BuildableName = "FreePlayer.framework"
-               BlueprintName = "FreePlayer"
+               BlueprintIdentifier = "1009B88A1F2983A9009F2336"
+               BuildableName = "FreePlayer_macOS.framework"
+               BlueprintName = "FreePlayer macOS"
                ReferencedContainer = "container:FreePlayer.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -29,26 +29,7 @@
       language = ""
       shouldUseLaunchSchemeArgsEnv = "YES">
       <Testables>
-         <TestableReference
-            skipped = "NO">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "10A64C051E593C81004F77BC"
-               BuildableName = "FreePlayerTests.xctest"
-               BlueprintName = "FreePlayerTests"
-               ReferencedContainer = "container:FreePlayer.xcodeproj">
-            </BuildableReference>
-         </TestableReference>
       </Testables>
-      <MacroExpansion>
-         <BuildableReference
-            BuildableIdentifier = "primary"
-            BlueprintIdentifier = "10A64BFC1E593C81004F77BC"
-            BuildableName = "FreePlayer.framework"
-            BlueprintName = "FreePlayer"
-            ReferencedContainer = "container:FreePlayer.xcodeproj">
-         </BuildableReference>
-      </MacroExpansion>
       <AdditionalOptions>
       </AdditionalOptions>
    </TestAction>
@@ -66,9 +47,9 @@
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "10A64BFC1E593C81004F77BC"
-            BuildableName = "FreePlayer.framework"
-            BlueprintName = "FreePlayer"
+            BlueprintIdentifier = "1009B88A1F2983A9009F2336"
+            BuildableName = "FreePlayer_macOS.framework"
+            BlueprintName = "FreePlayer macOS"
             ReferencedContainer = "container:FreePlayer.xcodeproj">
          </BuildableReference>
       </MacroExpansion>
@@ -84,9 +65,9 @@
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "10A64BFC1E593C81004F77BC"
-            BuildableName = "FreePlayer.framework"
-            BlueprintName = "FreePlayer"
+            BlueprintIdentifier = "1009B88A1F2983A9009F2336"
+            BuildableName = "FreePlayer_macOS.framework"
+            BlueprintName = "FreePlayer macOS"
             ReferencedContainer = "container:FreePlayer.xcodeproj">
          </BuildableReference>
       </MacroExpansion>
