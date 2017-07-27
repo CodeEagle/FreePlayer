@@ -51,6 +51,7 @@
 		1009B8CB1F298D15009F2336 /* id3v1.1.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = 10F67C5A1E7FE8070097EF4C /* id3v1.1.mp3 */; };
 		1009B8CC1F298D15009F2336 /* id3v2.3.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = 10F67C5B1E7FE8070097EF4C /* id3v2.3.mp3 */; };
 		1009B8CD1F298D15009F2336 /* id3v2.4.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = 10F67C5C1E7FE8070097EF4C /* id3v2.4.mp3 */; };
+		1009B8CF1F2994D1009F2336 /* LoggerVC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1009B8CE1F2994CC009F2336 /* LoggerVC.swift */; };
 		103376721E5A813800482B10 /* Extension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 103376711E5A813800482B10 /* Extension.swift */; };
 		104835201E5D5CA400CED749 /* Log.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1048351F1E5D5CA400CED749 /* Log.swift */; };
 		1057B4ED1E66CCB3001CDFA0 /* FreePlayer+MPPlayingCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1057B4EC1E66CCB3001CDFA0 /* FreePlayer+MPPlayingCenter.swift */; };
@@ -152,6 +153,7 @@
 		1009B8BE1F298CF7009F2336 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
 		1009B8C01F298CF7009F2336 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		1009B8C11F298CF7009F2336 /* FreePlayerOSXDemo.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FreePlayerOSXDemo.entitlements; sourceTree = "<group>"; };
+		1009B8CE1F2994CC009F2336 /* LoggerVC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoggerVC.swift; sourceTree = "<group>"; };
 		103376711E5A813800482B10 /* Extension.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Extension.swift; sourceTree = "<group>"; };
 		1048351F1E5D5CA400CED749 /* Log.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Log.swift; sourceTree = "<group>"; };
 		104F280D1E84CB5800E2707F /* README.MD */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.MD; sourceTree = "<group>"; };
@@ -280,6 +282,7 @@
 				106086421E5BEFE400A6F7CB /* CachingStream.swift */,
 				106086441E5BEFEC00A6F7CB /* FileStream.swift */,
 				1048351F1E5D5CA400CED749 /* Log.swift */,
+				1009B8CE1F2994CC009F2336 /* LoggerVC.swift */,
 				10F67C581E7FE30B0097EF4C /* ID3Parser.swift */,
 			);
 			name = Internal;
@@ -659,6 +662,7 @@
 				1084EEDF1E6544AE00CD86D9 /* Global.swift in Sources */,
 				10A64C201E5958AA004F77BC /* Reachability.swift in Sources */,
 				106AD7EA1E6521E70020357C /* FreePlayer.swift in Sources */,
+				1009B8CF1F2994D1009F2336 /* LoggerVC.swift in Sources */,
 				10A64C271E5968C3004F77BC /* AudioStream.swift in Sources */,
 				10A64C291E5968EA004F77BC /* AudioQueue.swift in Sources */,
 				10F67C591E7FE30B0097EF4C /* ID3Parser.swift in Sources */,
