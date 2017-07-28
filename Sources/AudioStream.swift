@@ -1369,7 +1369,8 @@ extension AudioStream: AudioQueueDelegate {
          * If we don't have any cached data to play and we are still supposed to
          * feed the audio queue with data, enter the buffering state.
          */
-        if count == 0 && _inputStreamRunning && state != .failed {
+        as_log("playbackDataCount:\(count), _inputStreamRunning:\(_inputStreamRunning), state:\(state), playBackPosition:\(playBackPosition.offset),\(playBackPosition.timePlayed) / \(duration)")
+        if count == 0 && _inputStreamRunning && state != .failed && playBackPosition.offset < 1 {
             let config = StreamConfiguration.shared
             
             _packetQueueLock.lock()
