@@ -11,7 +11,7 @@ import AudioToolbox
 protocol AudioStreamDelegate: class {
     func audioStreamStateChanged(state: AudioStreamState)
     func audioStreamErrorOccurred(errorCode: AudioStreamError , errorDescription: String )
-    func audioStreamMetaDataAvailable(metaData: [String : Metadata])
+    func audioStreamMetaDataAvailable(metaData: [MetaDataKey : Metadata])
     func samplesAvailable(samples: UnsafeMutablePointer<AudioBufferList>, frames: UInt32, description: AudioStreamPacketDescription)
     func bitrateAvailable()
 }
@@ -24,10 +24,11 @@ final class AudioStream {
     
     weak var delegate: AudioStreamDelegate?
     
-    var contentType = ""
-    #if !os(OSX)
+    var fileHint: AudioFileTypeID {
+        return _inputStream?.fileHint ?? kAudioFileMP3Type
+    }
+    #if os(iOS)
         var networkPermisionHandler: FPNetworkUsingPermisionHandler?
-        var networkPermisionHandlerExecuteResponse: (() -> ())?
     #endif
     
     
@@ -51,9 +52,8 @@ final class AudioStream {
     
     private var _urlUsingNetwork: URL?
     
-    private var _packetIdentifier = UInt64()
-    private var _playingPacketIdentifier = UInt64()
-    private var _dataOffset = UInt64()
+    
+    private var _dataOffset = UInt()
     private var _seekOffset = Float()
     private var _bounceCount = Int()
     private var _firstBufferingTime = CFAbsoluteTime()
@@ -61,27 +61,31 @@ final class AudioStream {
     private var _strictContentTypeChecking = false
     private var _defaultContentType = "audio/mpeg"
     
-    private var _defaultContentLength = UInt64()
-    private var _contentLength = UInt64()
-    private var _originalContentLength = UInt64()
-    private var _bytesReceived = UInt64()
+    private var _defaultContentLength = UInt()
+    private var _contentLength = UInt()
+    private var _originalContentLength = UInt()
+    private var _bytesReceived = UInt()
     
     private var _streamOpenPosition = Position()
     private var _currentPlaybackPosition = PlaybackPosition() /* record where it has played to */
     
     private var _inputStream: StreamInputProtocol?
-    private var _audioQueue: AudioQueue?
+    private lazy var audioQueue: AudioQueue = {
+        let _audioQueue = AudioQueue()
+        _audioQueue.delegate = self
+        _audioQueue.streamDesc = self._dstFormat
+        _audioQueue.initialOutputVolume = self._outputVolume
+        return _audioQueue
+    }()
     private var _state = AudioStreamState.stopped
     
-    private var _fileOutput: StreamOutputManager?
-    private var _fileOutputURL: URL?
-    
+    private var _packetIdentifier = UInt()
+    private var _playingPacketIdentifier = UInt()
     private weak var _queuedHead: QueuedPacket?
     private weak var _queuedTail: QueuedPacket?
     private weak var _playPacket: QueuedPacket?
     private var _packetSets: Set<QueuedPacket> = []
     private var _processedPackets: [UnsafeMutableRawPointer?] = []
-    private var _packetsList: UnsafeMutablePointer<AudioStreamPacketDescription>?
     
     private var _watchdogTimer: CFRunLoopTimer?
     private var _seekTimer: CFRunLoopTimer?
@@ -91,8 +95,8 @@ final class AudioStream {
     private var _numPacketsToRewind = UInt()
     private var _cachedDataSize = Int()
     
-    private var _audioDataByteCount = UInt64()
-    private var _audioDataPacketCount = UInt64()
+    private var _audioDataByteCount = UInt()
+    private var _audioDataPacketCount = UInt()
     private var _bitRate = UInt32()
     private var _metaDataSizeInBytes = UInt32()
     
@@ -120,6 +124,8 @@ final class AudioStream {
     private var _decoderFailed = false
     private var _decoderActive = false
     
+    private var _cleanCacheForDeinit = false
+    
     #if !os(OSX)
         private var _requireNetworkPermision = false
     #endif
@@ -133,7 +139,9 @@ final class AudioStream {
     
     deinit {
         assert(Thread.isMainThread)
+        _cleanCacheForDeinit = true
         clean()
+        as_log("done")
     }
     
     init() {
@@ -159,6 +167,17 @@ final class AudioStream {
         runDecodeloop()
     }
     
+    func reset() {
+        _cleaning = true
+        _audioStreamParserRunning = false
+        _inputStreamRunning = false
+        cleanupCachedData()
+        _packetSets.removeAll()
+        _packetIdentifier = 0
+        _playingPacketIdentifier = 0
+        _cleaning = false
+    }
+    
     func clean() {
         _cleaning = true
         _decodeTimer?.cancel()
@@ -173,7 +192,6 @@ final class AudioStream {
         _streamStateLock.unlock()
         _outputBuffer.removeAll()
         _inputStream = nil
-        _fileOutput = nil
         close(withParser: true)
     }
 }
@@ -224,8 +242,10 @@ extension AudioStream {
     
     private func decodeloopHandler() {
         checkRunOutOfData()
+        print("check can run")
         guard checkCanRun() else { return }
         converterFillComplexBuffer()
+        print("decode")
     }
     
     private func checkRunOutOfData() {
@@ -259,7 +279,7 @@ extension AudioStream {
     }
     
     private func checkCanRun() -> Bool {
-        if !decoderShouldRun {
+        if decoderShouldRun == false {
             _streamStateLock.lock()
             _decoderActive = false
             _streamStateLock.unlock()
@@ -292,7 +312,6 @@ extension AudioStream {
             _numPacketsToRewind = 0
         }
         _packetQueueLock.unlock()
-        
         let encoderDataCallback: AudioConverterComplexInputDataProc = { inAudioConverter, ioNumberDataPackets, ioBufferList, outDataPacketDescription, inUserData in
             guard let data = inUserData else { return noErr }
             let audioStream = data.to(object: AudioStream.self)
@@ -304,7 +323,7 @@ extension AudioStream {
         }
         
         guard let converter = _audioConverter else { return }
-        let data = UnsafeMutableRawPointer.voidPointer(from: self)
+        let data = UnsafeMutableRawPointer.from(object: self)
         let err = AudioConverterFillComplexBuffer(converter,
                                                   encoderDataCallback,
                                                   data,
@@ -323,7 +342,7 @@ extension AudioStream {
             _audioQueueConsumedPackets = true
             
             if _state != .playing && _stateSetTimer == nil {
-                let data = UnsafeMutableRawPointer.voidPointer(from: self)
+                let data = UnsafeMutableRawPointer.from(object: self)
                 // Set the playing state in the main thread
                 var ctx = CFRunLoopTimerContext(version: 0, info: data, retain: nil, release: nil, copyDescription: nil)
                 
@@ -380,7 +399,7 @@ extension AudioStream {
         } else {
             _streamStateLock.unlock()
         }
-        if !decoderShouldRun {
+        if decoderShouldRun == false {
             _streamStateLock.lock()
             _decoderActive = false
             _streamStateLock.unlock()
@@ -395,7 +414,14 @@ extension AudioStream {
         let cstate = state
         
         _streamStateLock.lock()
-        let noRuning = _preloading || !_decoderShouldRun || _converterRunOutOfData || _decoderFailed || cstate == .paused || cstate == .stopped || cstate == .seeking || cstate == .failed || cstate == .playbackCompleted || _dstFormat.mBytesPerPacket == 0
+        let noRuning = _preloading || _decoderShouldRun == false || _converterRunOutOfData || _decoderFailed || cstate == .paused || cstate == .stopped || cstate == .seeking || cstate == .failed || cstate == .playbackCompleted || _dstFormat.mBytesPerPacket == 0
+        print("_preloading:\(_preloading)")
+        print("_decoderShouldRun:\(_decoderShouldRun)")
+        print("_converterRunOutOfData:\(_converterRunOutOfData)")
+        print("_decoderFailed:\(_decoderFailed)")
+        print("cstate:\(cstate)")
+        print("_dstFormat:\(_dstFormat.mBytesPerPacket)")
+        print("noRuning:\(noRuning)")
         if noRuning {
             _streamStateLock.unlock()
             return false
@@ -405,25 +431,15 @@ extension AudioStream {
         }
     }
     
-    private var audioQueue: AudioQueue {
-        if _audioQueue == nil {
-            as_log("No audio queue, creating")
-            _audioQueue = AudioQueue()
-            _audioQueue?.delegate = self
-            _audioQueue?.streamDesc = _dstFormat
-            _audioQueue?.initialOutputVolume = _outputVolume
-        }
-        return _audioQueue!
-    }
+    
     
     private func closeAudioQueue() {
-        if _audioQueue == nil { return }
         as_log("Releasing audio queue")
         _streamStateLock.lock()
         _audioQueueConsumedPackets = false
         _streamStateLock.unlock()
-        _audioQueue?.stop(immediately: true)
-        _audioQueue = nil
+        audioQueue.stop(immediately: true)
+        
     }
     
     var volume: Float {
@@ -433,15 +449,15 @@ extension AudioStream {
             if final > 1 { final = 1 }
             if final < 0 { final = 0 }
             _outputVolume = final
-            _audioQueue?.volume = final
+            audioQueue.volume = final
         }
     }
     
-    var contentLength: UInt64 {
+    var contentLength: UInt {
         _streamStateLock.lock()
         if _contentLength == 0 {
             if let input = _inputStream {
-                _contentLength = UInt64(input.contentLength)
+                _contentLength = UInt(input.contentLength)
                 if _contentLength == 0 {
                     _contentLength = _defaultContentLength
                 }
@@ -522,17 +538,14 @@ private extension AudioStream {
         if err != noErr { return }
         // get the cookie data
         let size = Int(cookieSize)
-        let cookieData = UnsafeMutablePointer<UInt8>.allocate(capacity: size)
+        let cookieData = malloc(size).assumingMemoryBound(to: UInt8.self)
+        defer { free(cookieData) }
         err = AudioFileStreamGetProperty(stream, kAudioFileStreamProperty_MagicCookieData, &cookieSize, cookieData)
-        if err != noErr {
-            cookieData.deallocate(capacity: size)
-            return
-        }
+        if err != noErr { return }
         // set the cookie on the queue.
         if let value = _audioConverter {
             AudioConverterSetProperty(value, kAudioConverterDecompressionMagicCookie, cookieSize, cookieData)
         }
-        cookieData.deallocate(capacity: size)
     }
     
     func closeAndSignalError(code: AudioStreamError, errorDescription: String) {
@@ -544,7 +557,7 @@ private extension AudioStream {
     
     func cleanupCachedData() {
         _streamStateLock.lock()
-        if _decoderShouldRun == false {
+        if _decoderShouldRun == false, _cleanCacheForDeinit == false {
             as_log("decoder should not run, bailing out!")
             _streamStateLock.unlock()
             return
@@ -559,7 +572,7 @@ private extension AudioStream {
             as_log("Cache cleanup called but no free packets")
             return
         }
-        guard let last = _processedPackets.last, let raw = last, _cleaning == false else {
+        guard let last = _processedPackets.last, let raw = last else {
             _packetQueueLock.unlock()
             return
         }
@@ -569,19 +582,16 @@ private extension AudioStream {
         var keepCleaning = true
         while cur != nil && keepCleaning {
             if cur?.identifier == lastPacket.identifier {
-                as_log("Found lastPackect:\(lastPacket.identifier)")
                 keepCleaning = false
             }
             let tmp = cur?.next
             _cachedDataSize -= Int(cur?.desc.mDataByteSize ?? 0)
+            as_log("clean packect:\(cur?.identifier ?? 0) / \(_packetIdentifier)")
             cur = nil
             cur = tmp
             _ = _processedPackets.popLast()
             _packetSets.remove(lastPacket)
-            if cur == _playPacket {
-                as_log("Found _playPacket:\(_playPacket?.identifier ?? 0)")
-                break
-            }
+            if cur == _playPacket { break }
         }
         _queuedHead = cur
         _processedPackets.removeAll()
@@ -599,7 +609,7 @@ private extension AudioStream {
          * that the stream doesn't stuck forever on the buffering state
          * (for instance some network error condition)
          */
-        let userData = UnsafeMutableRawPointer.voidPointer(from: self)
+        let userData = UnsafeMutableRawPointer.from(object: self)
         let callback: CFRunLoopTimerCallBack = { timer, userData in
             guard let data = userData else { return }
             let audioStream = data.to(object: AudioStream.self)
@@ -681,7 +691,7 @@ private extension AudioStream {
         audioQueueConsumedPackets = _audioQueueConsumedPackets
         _streamStateLock.unlock()
         let length = contentLength
-        if !audioQueueConsumedPackets && length > 0 {
+        if audioQueueConsumedPackets == false && length > 0 {
             let config = StreamConfiguration.shared
             let seekLength = Float(length) * _seekOffset
             as_log("seek length \(seekLength)")
@@ -701,10 +711,7 @@ private extension AudioStream {
         
     }
 }
-// MARK: - Static Utils
-extension AudioStream {
-    static func createIdentifier(for url: URL) -> String { return url.path.sha256() + ".dou" }
-}
+
 // MARK:  Public
 extension AudioStream {
     
@@ -714,10 +721,9 @@ extension AudioStream {
         else {/* if playback position exsit, open by that position */
             var position = Position()
             let length = contentLength
-            position.start = UInt64(floor(_currentPlaybackPosition.offset * Float(length)))
+            position.start = UInt(floor(_currentPlaybackPosition.offset * Float(length)))
             position.end = length
-            as_log("reopen start offset:\(_currentPlaybackPosition.offset).")
-            as_log("reopen contentLength:\(length).")
+            as_log("reopen offset:\(_currentPlaybackPosition.offset), length:\(length).")
             open(position: position)
             let delta = position.end - _dataOffset
             guard delta > 0 else { return }
@@ -765,7 +771,7 @@ extension AudioStream {
         
         if position.start != 0 && position.end != 0  {
             _initialBufferingCompleted = false
-            if let stream = _inputStream { success = stream.open(position) }
+            if let stream = _inputStream { success = stream.open(at: position) }
         } else {
             _initialBufferingCompleted = false
             _packetIdentifier = 0
@@ -834,10 +840,6 @@ extension AudioStream {
             _audioStreamParserRunning = false
         }
         
-        _streamStateLock.lock()
-        _decoderShouldRun = false
-        _streamStateLock.unlock()
-        
         _packetQueueLock.lock()
         _playPacket = nil
         as_log("_playPacket: nil")
@@ -859,12 +861,8 @@ extension AudioStream {
         /*
          * Free any remaining queud packets for encoding.
          */
+        cleanupCachedData()
         _packetQueueLock.lock()
-        
-        _processedPackets.removeAll()
-        autoreleasepool {
-            _packetSets.removeAll()
-        }
         _cachedDataSize = 0
         _numPacketsToRewind = 0
         _packetQueueLock.unlock()
@@ -912,8 +910,8 @@ extension AudioStream {
     
     func setSeek(to offset: Float) { _seekOffset = offset }
     
-    var defaultContentLength: UInt64 { return _defaultContentLength }
-    func setDefaultContent(length: UInt64) {
+    var defaultContentLength: UInt { return _defaultContentLength }
+    func setDefaultContent(length: UInt) {
         _streamStateLock.lock()
         _defaultContentLength = length
         _streamStateLock.unlock()
@@ -934,17 +932,6 @@ extension AudioStream {
     
     var isContinuouStream: Bool { return contentLength <= 0 }
     
-    func setOuput(file: URL?) {
-        guard let url = file else {
-            _fileOutput = nil
-            _fileOutputURL = nil
-            return
-        }
-        _fileOutput = StreamOutputManager(fileURL: url)
-        _fileOutputURL = url
-    }
-    
-    func outputFileURL() -> URL? { return _fileOutputURL }
     
     var state: AudioStreamState {
         get {
@@ -1005,12 +992,12 @@ extension AudioStream {
             return floor(Float(_audioDataPacketCount) * Float(framesPerPacket) / Float(rate))
         }
         // Not enough data provided by the format, use bit rate based estimation
-        var audioFileLength = UInt64()
+        var audioFileLength = UInt()
         
         if _audioDataByteCount > 0 {
             audioFileLength = _audioDataByteCount
         } else {
-            audioFileLength = contentLength - UInt64(_metaDataSizeInBytes)
+            audioFileLength = contentLength - UInt(_metaDataSizeInBytes)
         }
         
         if audioFileLength > 0 {
@@ -1050,7 +1037,7 @@ extension AudioStream {
         _seekOffset = offset
         
         if let timer = _seekTimer { CFRunLoopTimerInvalidate(timer) }
-        let userData = UnsafeMutableRawPointer.voidPointer(from: self)
+        let userData = UnsafeMutableRawPointer.from(object: self)
         var ctx = CFRunLoopTimerContext(version: 0, info: userData, retain: nil, release: nil, copyDescription: nil)
         let callback: CFRunLoopTimerCallBack = { timer, userData in
             guard let data = userData else { return }
@@ -1069,100 +1056,45 @@ extension AudioStream {
         let durationInSeconds = duration
         if durationInSeconds <= 0 { return position }
         let seekByteOffset = Float(_dataOffset) + offset * Float(contentLength - _dataOffset)
-        position.start = UInt64(seekByteOffset)
+        position.start = UInt(seekByteOffset)
         position.end = contentLength
         return position
     }
     
-    func set(playRate: Float) { _audioQueue?.setPlayRate(playRate: playRate) }
+    func set(playRate: Float) { audioQueue.setPlayRate(playRate: playRate) }
     
-    func set(url u: URL?) {
-        as_log("url:\(u?.absoluteString ?? "")")
+    func set(url u: URL?, completion handler: @escaping (Bool) -> Void) {
+        let printValue: String
+        if let raw = u?.absoluteString {
+            if let value = raw.removingPercentEncoding { printValue = value }
+            else { printValue = raw }
+        } else { printValue = "nil" }
+        as_log(printValue)
         guard let url = u else { return }
         _urlUsingNetwork = nil
         _inputStream?.close()
-        _inputStream = nil
-        if HttpStream.canHandle(url: url) {
-            let config = StreamConfiguration.shared
-            if nil != config.storeDirectory {
-                as_log("has config.storeDirectory")
-                let cache = CachingStream(target: HttpStream())
-                let id = AudioStream.createIdentifier(for: url)
-                let result = cache.setStoreIdentifier(id: id)
-                as_log("config.cacheEnabled:\(config.cacheEnabled)")
-                as_log("cache.setStoreIdentifier:\(result)")
-                if config.cacheEnabled, result == false {
-                    cache.setCacheIdentifier(id: id)
-                    as_log("cache.setCacheIdentifier")
-                    if !cache.cachedComplete {
-                        as_log("cachedComplete: false")
-                        _urlUsingNetwork = url
-                    }
-                }
-                _inputStream = cache
-            } else {
-                as_log("not has config.storeDirectory")
-                if config.cacheEnabled {
-                    let cache = CachingStream(target: HttpStream())
-                    let id = AudioStream.createIdentifier(for: url)
-                    cache.setCacheIdentifier(id: id)
-                    if !cache.cachedComplete {
-                        _urlUsingNetwork = url
-                    }
-                    _inputStream = cache
-                } else {
-                     as_log("config.cacheEnabled is false")
-                    _inputStream = HttpStream()
-                    _urlUsingNetwork = url
-                }
-            }
-        } else if FileStream.canHandle(url: url) {
-            _inputStream = FileStream()
-        }
-        _inputStream?.delegate = self
-        #if os(OSX)
-            _inputStream?.set(url: url)
-        #else
+        let provider = StreamProvider(url: url)
+        provider.delegate = self
+        if case .remote = provider.info { _urlUsingNetwork = url }
+        _inputStream = provider
+        #if os(iOS)
             as_log("_requireNetworkPermision:\(_requireNetworkPermision), _urlUsingNetwork:\(_urlUsingNetwork?.absoluteString ?? "")")
-            if !_requireNetworkPermision || _urlUsingNetwork == nil {
-                _inputStream?.set(url: url)
-            } else {
+            if _requireNetworkPermision == true, _urlUsingNetwork != nil {
                 if networkPermisionHandler == nil {
                     as_log("networkPermisionHandler can not be nil when _requireNetworkPermision is true")
                     assert(false)
                 }
-                networkPermisionHandler?({[weak self] canPlay in
-                    guard canPlay else { return }
-                    self?._inputStream?.set(url: url)
-                    self?.networkPermisionHandlerExecuteResponse?()
+                networkPermisionHandler?({ canPlay in
+                    handler(canPlay)
                 })
+            } else {
+                handler(true)
             }
+        #else
+            handler(true)
         #endif
     }
-    
-    
-    
-    
-    static func audioStreamType(from contentType: String?) -> AudioFileTypeID {
-        var fileTypeHint = kAudioFileMP3Type
-        guard let type = contentType else {
-            as_log("***** Unable to detect the audio stream type: missing content-type! *****")
-            return fileTypeHint
-        }
-        switch type {
-        case "audio/mpeg", "audio/mp3": fileTypeHint = kAudioFileMP3Type
-        case "audio/x-wav": fileTypeHint = kAudioFileWAVEType
-        case "audio/x-aifc": fileTypeHint = kAudioFileAIFCType
-        case "audio/x-aiff": fileTypeHint = kAudioFileAIFFType
-        case "audio/x-m4a": fileTypeHint = kAudioFileM4AType
-        case "audio/mp4", "video/mp4": fileTypeHint = kAudioFileMPEG4Type
-        case "audio/x-caf": fileTypeHint = kAudioFileCAFType
-        case "audio/aac", "audio/aacp": fileTypeHint = kAudioFileAAC_ADTSType
-        default:as_log("***** Unable to detect the audio stream type *****")
-        }
-        as_log("\(fileTypeHint) detected")
-        return fileTypeHint
-    }
+
 }
 
 // MARK: - StreamInputDelegate
@@ -1172,30 +1104,28 @@ extension AudioStream: StreamInputDelegate {
             as_log("parser already running!")
             return
         }
-        let prefix = ["audio/", "application/octet-stream"]
-        var matchesAudioContentType = false
-        if let _contentType = _inputStream?.contentType  {
-            contentType = _contentType
-            for pre in prefix {
-                if contentType.hasPrefix(pre) {
-                    matchesAudioContentType = true
-                    break
-                }
-            }
-        }
-        
-        if !matchesAudioContentType && _strictContentTypeChecking {
-            var msg = "Strict content type checking active, no content type provided by the server"
-            if !contentType.isEmpty {
-                msg = "Strict content type checking active, \(contentType) is not an audio content type"
-            }
-            closeAndSignalError(code: .open, errorDescription: msg)
-            return
-        }
+//        let prefix = ["audio/", "application/octet-stream"]
+//        var matchesAudioContentType = false
+//        if let _contentType = _inputStream?.contentType  {
+//            contentType = _contentType
+//            for pre in prefix {
+//                if contentType.hasPrefix(pre) {
+//                    matchesAudioContentType = true
+//                    break
+//                }
+//            }
+//        }
+//
+//        if !matchesAudioContentType && _strictContentTypeChecking {
+//            var msg = "Strict content type checking active, no content type provided by the server"
+//            if !contentType.isEmpty {
+//                msg = "Strict content type checking active, \(contentType) is not an audio content type"
+//            }
+//            closeAndSignalError(code: .open, errorDescription: msg)
+//            return
+//        }
         _audioDataByteCount = 0
-        let this = UnsafeMutableRawPointer.voidPointer(from: self)
-        let id = contentType.isEmpty ? _defaultContentType : contentType
-        let fileHint = AudioStream.audioStreamType(from: id)
+        let this = UnsafeMutableRawPointer.from(object: self)
         let propertyCallback: AudioFileStream_PropertyListenerProc = {  userData, inAudioFileStream, propertyId, ioFlags in
             let sself = userData.to(object: AudioStream.self)
             sself.propertyValueCallback(userData: userData,
@@ -1239,32 +1169,30 @@ extension AudioStream: StreamInputDelegate {
                 CFRunLoopTimerInvalidate(timer)
                 _inputStreamTimer = nil
             }
-            let this = UnsafeMutableRawPointer.voidPointer(from: self)
+            let this = UnsafeMutableRawPointer.from(object: self)
             var ctx = CFRunLoopTimerContext(version: 0, info: this, retain: nil, release: nil, copyDescription: nil)
             let callback: CFRunLoopTimerCallBack = { timer, userData in
                 guard let data = userData else { return }
-                let audioStream = data.to(object: AudioStream.self)
-                if !audioStream._inputStreamRunning {
-                    if let timer = audioStream._inputStreamTimer {
+                let sself = data.to(object: AudioStream.self)
+                if sself._inputStreamRunning == false {
+                    if let timer = sself._inputStreamTimer {
                         CFRunLoopTimerInvalidate(timer)
                     }
                     return
                 }
-                audioStream._packetQueueLock.lock()
+                sself._packetQueueLock.lock()
                 let config = StreamConfiguration.shared
-                if audioStream._cachedDataSize < config.maxPrebufferedByteCount {
-                    audioStream._packetQueueLock.unlock()
-                    audioStream._inputStream?.setScheduledInRunLoop(run: true)
+                if sself._cachedDataSize < config.maxPrebufferedByteCount {
+                    sself._packetQueueLock.unlock()
+                    sself._inputStream?.setScheduledInRunLoop(run: true)
                 } else {
-                    audioStream._packetQueueLock.unlock()
+                    sself._packetQueueLock.unlock()
                 }
             }
             let timer = CFRunLoopTimerCreate(nil, CFAbsoluteTimeGetCurrent(), 0.1, 0, 0, callback, &ctx)
             _inputStreamTimer = timer
             CFRunLoopAddTimer(CFRunLoopGetCurrent(), timer, CFRunLoopMode.commonModes)
-        } else {
-            _packetQueueLock.unlock()
-        }
+        } else { _packetQueueLock.unlock() }
         
         var decoderFailed = false
         _streamStateLock.lock()
@@ -1274,9 +1202,7 @@ extension AudioStream: StreamInputDelegate {
             closeAndSignalError(code: .terminated, errorDescription: "Stream terminated abrubtly")
             return
         }
-        
-        _bytesReceived += UInt64(numBytes)
-        _fileOutput?.write(data: data, length: Int(numBytes))
+        _bytesReceived += UInt(numBytes)
         
         guard _audioStreamParserRunning , let stream = _audioFileStream else { return }
         let result = AudioFileStreamParseBytes(stream, numBytes, data, _discontinuity ? AudioFileStreamParseFlags.discontinuity : AudioFileStreamParseFlags.init(rawValue: 0))
@@ -1321,8 +1247,9 @@ extension AudioStream: StreamInputDelegate {
             as_log("stray callback detected!")
             return
         }
-        if errorDesc.hasPrefix(HttpStream.fixedCodeError) {
-            let raw = errorDesc.replacingOccurrences(of: HttpStream.fixedCodeError, with: "")
+        let prefix = StreamProvider.ErrorPrefix
+        if errorDesc.hasPrefix(prefix) {
+            let raw = errorDesc.replacingOccurrences(of: prefix, with: "")
             if let errorCode = Int(raw), errorCode == 404 {
                 closeAndSignalError(code: .badURL, errorDescription: errorDesc)
                 return
@@ -1331,7 +1258,7 @@ extension AudioStream: StreamInputDelegate {
         closeAndSignalError(code: .network, errorDescription: errorDesc)
     }
     
-    func streamMetaDataAvailable(metaData: [String: Metadata]) {
+    func streamMetaDataAvailable(metaData: [MetaDataKey: Metadata]) {
         delegate?.audioStreamMetaDataAvailable(metaData: metaData)
     }
     
@@ -1347,12 +1274,12 @@ extension AudioStream: StreamInputDelegate {
 
 // MARK: - AudioQueueDelegate
 extension AudioStream: AudioQueueDelegate {
-    func audioQueueStateChanged(state: AudioQueue.State) {
-        if (state == .running) {
+    func audioQueueStateChanged(state: State) {
+        if state == .running, self.state != .seeking {
             invalidateWatchdogTimer()
             self.state = .playing
-            if let c = _audioQueue?.volume, c != _outputVolume {
-                _audioQueue?.volume = _outputVolume
+            if audioQueue.volume != _outputVolume {
+                audioQueue.volume = _outputVolume
             }
         }
         else if state == .idle { self.state = .stopped }
@@ -1499,8 +1426,6 @@ private extension AudioStream {
     
     // MARK: encoderDataCallback
     func encoderDataCallback(inAudioConverter: AudioConverterRef, ioNumberDataPackets: UnsafeMutablePointer<UInt32>, ioBufferList: UnsafeMutablePointer<AudioBufferList>, outDataPacketDescription: UnsafeMutablePointer<UnsafeMutablePointer<AudioStreamPacketDescription>?>?, inUserData: UnsafeMutableRawPointer?) -> OSStatus {
-        
-        
 //        as_log("encoderDataCallback 1: lock")
         _packetQueueLock.lock()
         // Dequeue one packet per time for the decoder
@@ -1522,20 +1447,15 @@ private extension AudioStream {
         ioNumberDataPackets.pointee = 1
         
         if let d = front.data {
-            let bytes = UnsafeMutablePointer<UInt8>(mutating: d)
-            let buffer = UnsafeMutableRawPointer(bytes)
-            // put the data pointer into the buffer list
-            let ioDataPtr = UnsafeMutableAudioBufferListPointer(ioBufferList)
-            ioDataPtr[0].mData = buffer
-            ioDataPtr[0].mDataByteSize = front.desc.mDataByteSize
-            ioDataPtr[0].mNumberChannels = _srcFormat?.mChannelsPerFrame ?? 2
+            let io = UnsafeMutableAudioBufferListPointer(ioBufferList)
+            io[0].mData = d
+            io[0].mDataByteSize = front.desc.mDataByteSize
+            io[0].mNumberChannels = _srcFormat?.mChannelsPerFrame ?? 2
         }
         
-        _packetsList?.deallocate(capacity: 1)
-        let desc = UnsafeMutablePointer<AudioStreamPacketDescription>.allocate(capacity: 1)
-        desc.initialize(to: front.desc)
-        outDataPacketDescription?.pointee = desc
-        _packetsList = desc
+        if var desc = front.desc {
+            outDataPacketDescription?.pointee = UnsafeMutablePointer(&desc)
+        }
         
         let next = front.next
         if next == nil {
@@ -1543,9 +1463,7 @@ private extension AudioStream {
             let available = _packetSets.filter({ (packst) -> Bool in
                 return packst.identifier == target
             })
-            if let here = available.first {
-                front.next = here
-            }
+            if let here = available.first { front.next = here }
         }
         _playPacket = front.next
         
@@ -1587,11 +1505,11 @@ private extension AudioStream {
             var ioFlags = AudioFileStreamSeekFlags.offsetIsEstimated
             var packetAlignedByteOffset = Int64()
             let seekPacket = Int64(floor((duration * _seekOffset) / Float(packetDuration)))
-            _playingPacketIdentifier = UInt64(seekPacket)
+            _playingPacketIdentifier = UInt(seekPacket)
             if let stream = _audioFileStream {
                 let err = AudioFileStreamSeek(stream, seekPacket, &packetAlignedByteOffset, &ioFlags)
                 if err == noErr {
-                    position.start = UInt64(packetAlignedByteOffset) + _dataOffset
+                    position.start = UInt(packetAlignedByteOffset) + _dataOffset
                 } else {
                     closeAndSignalError(code: .network, errorDescription: "Failed to calculate seeking position")
                     return
@@ -1644,7 +1562,7 @@ private extension AudioStream {
                 closeAndSignalError(code: .network, errorDescription: errString)
                 return
             }
-            let success = stream.open(position)
+            let success = stream.open(at: position)
             if success {
                 _contentLength = _originalContentLength
                 
@@ -1705,8 +1623,8 @@ private extension AudioStream {
             }
         }
         func dataOffset() {
-            var offset = UInt64()
-            var offsetSize = UInt32(MemoryLayout<UInt64>.size)
+            var offset = UInt()
+            var offsetSize = UInt32(MemoryLayout<UInt>.size)
             let result = AudioFileStreamGetProperty(inAudioFileStream, kAudioFileStreamProperty_DataOffset, &offsetSize, &offset)
             if result == noErr {
                 _dataOffset = offset
@@ -1743,6 +1661,7 @@ private extension AudioStream {
             if result == noErr {
                 let total =  Int(formatListSize)
                 let formatListData = UnsafeMutablePointer<AudioFormatListItem>.allocate(capacity: total)
+                defer { formatListData.deallocate(capacity: total) }
                 let error = AudioFileStreamGetProperty(inAudioFileStream, kAudioFileStreamProperty_FormatList, &formatListSize, formatListData)
                 if error == noErr {
                     let size = MemoryLayout<AudioFormatListItem>.size
@@ -1759,7 +1678,7 @@ private extension AudioStream {
                         i += size
                     }
                 }
-                formatListData.deallocate(capacity: total)
+                
             }
             guard var src = _srcFormat else { return }
             _packetDuration = Double(src.mFramesPerPacket) / Double(src.mSampleRate)
@@ -1793,15 +1712,16 @@ private extension AudioStream {
             return
         }
 //        as_log("inNumberBytes:\(inNumberBytes), inNumberPackets:\(inNumberPackets)")
-        let inputData = Data(bytes: inInputData, count: Int(inNumberBytes))
-        for index in 0..<inNumberPackets {
-            autoreleasepool(invoking: {
+//        let inputData = Data(bytes: inInputData, count: Int(inNumberBytes))
+        
+            for index in 0..<inNumberPackets {
+                autoreleasepool {
                 /* Allocate the packet */
                 let i = Int(index)
                 let size = inPacketDescriptions.advanced(by: i).pointee.mDataByteSize
-                let packet = QueuedPacket()
+                let packet = QueuedPacket(size: Int(size))
                 packet.identifier = _packetIdentifier
-                
+                print("create packet:\(_packetIdentifier)")
                 // If the stream didn't provide bitRate (m_bitRate == 0), then let's calculate it
                 if _bitRate == 0 && _bitrateBufferIndex < AudioStream.kAudioStreamBitrateBufferSize {
                     // Only keep sampling for one buffer cycle; this is to keep the counters (for instance) duration
@@ -1823,11 +1743,7 @@ private extension AudioStream {
                 packet.desc.mStartOffset = 0
                 
                 let offset = Int(inPacketDescriptions.advanced(by: i).pointee.mStartOffset)
-                
-                let index: Range<Data.Index> = Range(uncheckedBounds: (offset, offset + Int(size)))
-                let sub = inputData.subdata(in: index)
-                let subdata = sub.map{ $0 }
-                packet.data = subdata.map{ $0 }
+                memcpy(packet.data, inInputData.advanced(by: offset), Int(size))
                 // _queuedHead(0) -> _queuedTail(n)
                 if _queuedHead == nil {
                     _queuedHead = packet
@@ -1845,7 +1761,7 @@ private extension AudioStream {
                 _packetIdentifier += 1
 //                as_log("unlock")
                 _packetQueueLock.unlock()
-            })
+            }
         }
         determineBufferingLimits()
     }
@@ -1854,12 +1770,16 @@ private extension AudioStream {
 // MARK: - Struct
 extension AudioStream {
     private final class QueuedPacket: Hashable {
-        var identifier = UInt64()
+        var identifier = UInt()
         var desc: AudioStreamPacketDescription! = AudioStreamPacketDescription()
         weak var next: QueuedPacket?
-        var data: [UInt8]?
+        var data: UnsafeMutableRawPointer?
         
-        init() { }
+        deinit { if let d = data { free(d) } }
+        
+        init(size: Int) {
+            data = malloc(size)
+        }
         
         static func ==(lhs: QueuedPacket, rhs: QueuedPacket) -> Bool {
             return lhs.identifier == rhs.identifier
@@ -1869,12 +1789,3 @@ extension AudioStream {
     }
 }
 
-extension String {
-    func sha256() -> String {
-        guard let dat = data(using: .utf8) else { return self }
-        let sub = dat.base64EncodedString()
-        let range = NSMakeRange(0, max(24, sub.count))
-        let final = sub.substring(with: Range.init(range, in: sub)!)
-        return final
-    }
-}

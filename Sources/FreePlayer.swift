@@ -19,11 +19,16 @@ public final class FreePlayer {
     public var onFailure: ((AudioStreamError, String?) -> Void)?
     #if !os(OSX)
         public var networkPermisionHandler: FPNetworkUsingPermisionHandler? {
-            didSet { _audioStream?.networkPermisionHandler = networkPermisionHandler }
+            didSet { _audioStream.networkPermisionHandler = networkPermisionHandler }
         }
     #endif
     
-    private var _audioStream: AudioStream?
+    private lazy var _audioStream: AudioStream = {
+        let a = AudioStream()
+        a.delegate = self
+        return a
+    }()
+    
     private var _url: URL?
     private var _reachability: Reachability?
     #if !os(OSX)
@@ -44,7 +49,6 @@ public final class FreePlayer {
         assert(Thread.isMainThread)
         NotificationCenter.default.removeObserver(self)
         stop()
-        _audioStream = nil
         FreePlayer.removeIncompleteCache()
     }
     
@@ -92,21 +96,17 @@ public final class FreePlayer {
     
     
     private func reset() {
-        _audioStream?.forceStop = true
-        _audioStream = AudioStream()
-        _audioStream?.delegate = self
-        #if !os(OSX)
-            _audioStream?.networkPermisionHandler = networkPermisionHandler
-            _audioStream?.networkPermisionHandlerExecuteResponse = {[weak self] in
-                guard let sself = self else { return }
-                DispatchQueue.main.async {
-                    sself._internetConnectionAvailable = true
-                    sself._retryCount = 0
-                    sself.play()
-                }
-            }
+        _audioStream.reset()
+        #if os(iOS)
+            _audioStream.networkPermisionHandler = networkPermisionHandler
         #endif
-        _audioStream?.set(url: url)
+        _audioStream.set(url: url, completion: {[unowned self] (success) in
+            DispatchQueue.main.async {
+                self._internetConnectionAvailable = true
+                self._retryCount = 0
+                self.play()
+            }
+        })
         _retryCount = 0
         _internetConnectionAvailable = true
         #if os(iOS)
@@ -132,16 +132,14 @@ extension FreePlayer {
     
     public func pause() {
         assert(Thread.isMainThread)
-        guard let audio = _audioStream else { return }
         _wasPaused = true
-        audio.pause()
+        _audioStream.pause()
     }
     
     public func resume() {
         assert(Thread.isMainThread)
-        guard let audio = _audioStream else { return }
         _wasPaused = false
-        audio.resume()
+        _audioStream.resume()
         #if os(iOS)
             NowPlayingInfo.shared.play(elapsedPlayback: Double(playbackPosition.timePlayed))
         #endif
@@ -156,52 +154,69 @@ extension FreePlayer {
     
     public func play() {
         assert(Thread.isMainThread)
-        guard let audio = _audioStream else { return }
-        _wasPaused = false
-        if audio.isPreloading {
-            audio.startCachedDataPlayback()
+        
+        self._wasPaused = false
+        if _audioStream.isPreloading {
+            _audioStream.startCachedDataPlayback()
             return
         }
         #if os(iOS)
-            endBackgroundTask()
-            _backgroundTask = UIApplication.shared.beginBackgroundTask(expirationHandler: {[weak self] in
+            self.endBackgroundTask()
+            self._backgroundTask = UIApplication.shared.beginBackgroundTask(expirationHandler: {[weak self] in
                 self?.endBackgroundTask()
             })
         #endif
-        audio.open()
-        startReachability()
+        _audioStream.open()
+        self.startReachability()
+        
+        /*
+         guard let audio = _audioStream else { return }
+         _wasPaused = false
+         if audio.isPreloading {
+         audio.startCachedDataPlayback()
+         return
+         }
+         #if os(iOS)
+         endBackgroundTask()
+         _backgroundTask = UIApplication.shared.beginBackgroundTask(expirationHandler: {[weak self] in
+         self?.endBackgroundTask()
+         })
+         #endif
+         audio.open()
+         startReachability()
+         */
     }
 
     public func stop() {
         assert(Thread.isMainThread)
-        _audioStream?.forceStop = true
-        _audioStream?.clean()
+        _audioStream.forceStop = true
+        _audioStream.reset()
         endBackgroundTask()
         _stopHandlerNetworkChange = true
     }
     
     public var volume: Float {
-        get { return _audioStream?.volume ?? 1 }
-        set { _audioStream?.volume = newValue }
+        get { return _audioStream.volume }
+        set { _audioStream.volume = newValue }
     }
     
     public func rewind(in seconds: UInt) {
         DispatchQueue.main.async {
-            guard let audio = self._audioStream else { return }
+            let audio = self._audioStream
             if self.durationInSeconds <= 0 { return }  // Rewinding only possible for continuous streams
             let oriVolume = self.volume
             audio.volume = 0
             audio.rewind(in: seconds)
             DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: {[weak self] in
-                self?._audioStream?.volume = oriVolume
+                self?._audioStream.volume = oriVolume
             })
         }
     }
     
     public func preload() {
         DispatchQueue.main.async {
-            self._audioStream?.setPreloading(loading: true)
-            self._audioStream?.open()
+            self._audioStream.setPreloading(loading: true)
+            self._audioStream.open()
         }
     }
     
@@ -212,8 +227,8 @@ extension FreePlayer {
             var offset = time / duration
             if offset > 1 { offset = 1 }
             if offset < 0 { offset = 0 }
-            self._audioStream?.resume()
-            self._audioStream?.seek(to: offset)
+            self._audioStream.resume()
+            self._audioStream.seek(to: offset)
             #if os(iOS)
                 NowPlayingInfo.shared.play(elapsedPlayback: Double(self.playbackPosition.timePlayed))
             #endif
@@ -222,35 +237,35 @@ extension FreePlayer {
     
     public func setPlayRate(to value: Float) {
         DispatchQueue.main.async {
-            self._audioStream?.set(playRate: value)
+            self._audioStream.set(playRate: value)
         }
     }
     
     public var isPlaying: Bool {
         assert(Thread.isMainThread)
-        guard let state = _audioStream?.state else { return false }
+        let state = _audioStream.state
         return state == .playing || state == .endOfFile
     }
     
     // MARK:  audio properties
-    public var contentType: String? {
+    public var fileHint: AudioFileTypeID {
         assert(Thread.isMainThread)
-        return _audioStream?.contentType
+        return _audioStream.fileHint
     }
     
-    public var contentLength: UInt64 {
+    public var contentLength: UInt {
         assert(Thread.isMainThread)
-        return _audioStream?.contentLength ?? 0
+        return _audioStream.contentLength
     }
     
-    public var defaultContentLength: UInt64 {
+    public var defaultContentLength: UInt {
         assert(Thread.isMainThread)
-        return _audioStream?.defaultContentLength ?? 0
+        return _audioStream.defaultContentLength
     }
     
     public var bufferRatio: Float {
         assert(Thread.isMainThread)
-        guard let audio = _audioStream else { return 0 }
+        let audio = _audioStream
         let length = Float(audio.contentLength)
         let read = Float(audio.bytesReceived)
         var final = length > 0 ? read / length : 0
@@ -259,28 +274,20 @@ extension FreePlayer {
         return final
     }
     
-    public var outputFileURL: URL? {
-        get {
-            assert(Thread.isMainThread)
-            return _audioStream?.outputFileURL()
-        }
-        set { _audioStream?.setOuput(file: newValue) }
-    }
-    
     public var prebufferedByteCount: Int {
         assert(Thread.isMainThread)
-        return _audioStream?.cachedDataSize ?? 0
+        return _audioStream.cachedDataSize
     }
     
     public var durationInSeconds: Float {
         assert(Thread.isMainThread)
-        return _audioStream?.duration ?? 0
+        return _audioStream.duration
     }
     
     public var currentSeekByteOffset: Position {
         assert(Thread.isMainThread)
         var offset = Position()
-        guard let audio = _audioStream else { return offset }
+        let audio = _audioStream
         if durationInSeconds <= 0 { return offset }// continuous
         offset.position = audio.playBackPosition.offset
         let pos = audio.streamPosition(for: offset.position)
@@ -291,52 +298,33 @@ extension FreePlayer {
     
     public var bitRate: Float {
         assert(Thread.isMainThread)
-        return _audioStream?.bitrate ?? 0
+        return _audioStream.bitrate
     }
     
     public var formatDescription: String {
         assert(Thread.isMainThread)
-        return _audioStream?.sourceFormatDescription ?? ""
+        return _audioStream.sourceFormatDescription
     }
     
     public var playbackPosition: PlaybackPosition {
         assert(Thread.isMainThread)
-        return _audioStream?.playBackPosition ?? PlaybackPosition()
+        return _audioStream.playBackPosition
     }
     
     public var cached: Bool {
         assert(Thread.isMainThread)
         guard let url = _url  else { return false }
-        let config = StreamConfiguration.shared
+        var config = StreamConfiguration.shared
         let fs = FileManager.default
-        let id = AudioStream.createIdentifier(for: url) + ".metadata"
+        let id = config.cacheNaming.name(for: url)
         let cachedFile = (config.cacheDirectory as NSString).appendingPathComponent(id)
         var result = fs.fileExists(atPath: cachedFile)
-        if let storeFolder = config.storeDirectory, result == false {
+        let additionalFolder = config.cachePolicy.additionalFolder
+        if result == false, let storeFolder = additionalFolder   {
             let storedFile = (storeFolder as NSString).appendingPathComponent(id)
             result = fs.fileExists(atPath: storedFile)
         }
         return result
-    }
-    
-    public var suggestedFileExtension: String? {
-        assert(Thread.isMainThread)
-        guard let type = contentType else { return nil }
-        let map = [
-            "mpeg" : "mp3",
-            "x-wav" : "wav",
-            "x-aifc" : "aifc",
-            "x-aiff" : "aiff",
-            "x-m4a" : "m4a",
-            "mp4" : "mp4",
-            "x-caf" : "caf",
-            "aac" : "aac",
-            "aacp" : "aac"
-        ]
-        for (key, value) in map {
-            if type.hasSuffix(key) { return value }
-        }
-        return nil
     }
     
     public var url: URL? {
@@ -351,7 +339,13 @@ extension FreePlayer {
                 return
             }
             _url = newValue
-            _audioStream?.set(url: newValue)
+            _audioStream.set(url: newValue, completion: {[unowned self] (success) in
+                DispatchQueue.main.async {
+                    self._internetConnectionAvailable = true
+                    self._retryCount = 0
+                    self.play()
+                }
+            })
             _propertyLock.unlock()
         }
     }
@@ -372,7 +366,9 @@ extension FreePlayer {
                 if StreamConfiguration.shared.automaticAudioSessionHandlingEnabled {
                     try? AVAudioSession.sharedInstance().setActive(false)
                 }
-                NowPlayingInfo.shared.pause(elapsedPlayback: Double(playbackPosition.timePlayed))
+                DispatchQueue.main.async {
+                    NowPlayingInfo.shared.pause(elapsedPlayback: Double(self.playbackPosition.timePlayed))
+                }
             #endif
         case .buffering: _internetConnectionAvailable = true
         case .playing:
@@ -380,12 +376,14 @@ extension FreePlayer {
                 if StreamConfiguration.shared.automaticAudioSessionHandlingEnabled {
                     try? AVAudioSession.sharedInstance().setActive(true)
                 }
-                let duration = Int(ceil(durationInSeconds))
-                if NowPlayingInfo.shared.duration != duration {
-                    NowPlayingInfo.shared.duration = duration
-                }
-                if NowPlayingInfo.shared.playbackRate != 1 {
-                    NowPlayingInfo.shared.play(elapsedPlayback: Double(playbackPosition.timePlayed))
+                DispatchQueue.main.async {
+                    let duration = Int(ceil(self.durationInSeconds))
+                    if NowPlayingInfo.shared.duration != duration {
+                        NowPlayingInfo.shared.duration = duration
+                    }
+                    if NowPlayingInfo.shared.playbackRate != 1 {
+                        NowPlayingInfo.shared.play(elapsedPlayback: Double(self.playbackPosition.timePlayed))
+                    }
                 }
             #endif
             if _retryCount > 0 {
@@ -395,7 +393,9 @@ extension FreePlayer {
             endBackgroundTask()
         case .paused:
             #if os(iOS)
-                NowPlayingInfo.shared.pause(elapsedPlayback: Double(playbackPosition.timePlayed))
+                DispatchQueue.main.async {
+                    NowPlayingInfo.shared.pause(elapsedPlayback: Double(self.playbackPosition.timePlayed))
+                }
             #endif
         case .failed:
             endBackgroundTask()
@@ -409,7 +409,7 @@ extension FreePlayer {
     }
     
     func attemptRestart() {
-        guard let audio = _audioStream else { return }
+        let audio = _audioStream
         
         if audio.isPreloading {
             debug_log("☄️: Stream is preloading. Not attempting a restart")
@@ -454,7 +454,7 @@ extension FreePlayer {
             }
             if self._wasDisconnected && self._internetConnectionAvailable {
                 self._wasDisconnected = false
-                if self._audioStream?.streamHasDataCanPlay() == false {
+                if self._audioStream.streamHasDataCanPlay() == false {
                     self.attemptRestart()
                 }
                 debug_log("☄️: Internet connection available again.")
@@ -507,37 +507,31 @@ extension FreePlayer: AudioStreamDelegate {
     func audioStreamErrorOccurred(errorCode: AudioStreamError , errorDescription: String) {
         onFailure?(errorCode, errorDescription)
         let needRestart: [AudioStreamError] = [.network, .unsupportedFormat, .open, .terminated]
-        if _audioStream?.isPreloading == false && needRestart.contains(errorCode) {
+        if _audioStream.isPreloading == false && needRestart.contains(errorCode) {
             attemptRestart()
             fp_log("audioStreamErrorOccurred attemptRestart")
         }
     }
     
-    func audioStreamMetaDataAvailable(metaData: [String : Metadata]) {
+    func audioStreamMetaDataAvailable(metaData: [MetaDataKey : Metadata]) {
         #if os(iOS)
-            DispatchQueue.global(qos: .userInitiated).async {
-                var artist: String?
-                var title: String?
-                var cover: UIImage?
-                if let raw = metaData[HttpStream.Keys.icecastStationName.rawValue], case Metadata.text(let name) = raw {
-                    title = name
+            guard StreamConfiguration.shared.autoFillID3InfoToNowPlayingCenter else { return }
+            DispatchQueue.global(qos: .utility).async {
+                if let value = metaData[.title], case Metadata.text(let title) = value {
+                    NowPlayingInfo.shared.name = title
                 }
-                if StreamConfiguration.shared.autoFillID3InfoToNowPlayingCenter {
-                    if let raw = metaData[ID3Parser.MetaDataKey.title.rawValue], case Metadata.text(let t) = raw {
-                        title = t
-                    }
-                    if let raw = metaData[ID3Parser.MetaDataKey.artist.rawValue], case Metadata.text(let art) = raw {
-                        artist = art
-                    }
-                    if let raw = metaData[ID3Parser.MetaDataKey.cover.rawValue], case Metadata.data(let d) = raw {
-                        cover = UIImage(data: d)
-                    }
+                if let value = metaData[.album], case Metadata.text(let album) = value {
+                    NowPlayingInfo.shared.album = album
                 }
-                if let value = artist { NowPlayingInfo.shared.artist = value }
-                if let value = title { NowPlayingInfo.shared.name = value }
-                if let value = cover { NowPlayingInfo.shared.artwork = value }
+                if let value = metaData[.artist], case Metadata.text(let artist) = value {
+                    NowPlayingInfo.shared.artist = artist
+                }
+                if let value = metaData[.cover], case Metadata.data(let cover) = value {
+                    NowPlayingInfo.shared.artwork = UIImage(data: cover)
+                }
                 NowPlayingInfo.shared.update()
             }
+            
         #endif
     }
     
@@ -550,7 +544,7 @@ extension FreePlayer: AudioStreamDelegate {
         
         guard config.usePrebufferSizeCalculationInSeconds == false else { return }
         
-        let bitrate = _audioStream?.bitrate ?? 0
+        let bitrate = _audioStream.bitrate
         if bitrate <= 0 { return } // No bitrate provided, use the defaults
         
         let bufferSizeForSecond = bitrate / 8.0
@@ -586,31 +580,23 @@ extension FreePlayer {
             let folder = dir as NSString
             let files = try fs.contentsOfDirectory(atPath: dir)
             for item in files {
-                guard item.hasSuffix(".dou") || item.hasSuffix(".metadata") else { continue }
                 let path = folder.appendingPathComponent(item)
                 let attributes = try fs.attributesOfItem(atPath: path)
                 if let size = attributes[FileAttributeKey.size] as? UInt64 {
                     total += size
                 }
             }
-        } catch {
-            debug_log(error)
-        }
+        } catch { debug_log(error) }
         return total
     }
     
     public static func expungeCacheFolder() {
-        DispatchQueue.global(qos: .userInitiated).async {
+        DispatchQueue.global(qos: .utility).async {
             let fs = FileManager.default
             let dir = StreamConfiguration.shared.cacheDirectory
             do {
-                let folder = dir as NSString
-                let files = try fs.contentsOfDirectory(atPath: dir)
-                for item in files {
-                    guard item.hasSuffix(".dou") || item.hasSuffix(".metadata") else { continue }
-                    let path = folder.appendingPathComponent(item)
-                    try fs.removeItem(atPath: path)
-                }
+                try fs.removeItem(atPath: dir)
+                try fs.createDirectory(atPath: dir, withIntermediateDirectories: true, attributes: nil)
             } catch {
                 debug_log(error)
             }
@@ -619,9 +605,9 @@ extension FreePlayer {
     
     public static func removeCache(by url: URL?) {
         guard let raw = url else { return }
-        DispatchQueue.global(qos: .userInitiated).async {
+        DispatchQueue.global(qos: .utility).async {
             let fs = FileManager.default
-            let id = AudioStream.createIdentifier(for: raw)
+            let id = StreamConfiguration.shared.cacheNaming.name(for: raw)
             let dir = StreamConfiguration.shared.cacheDirectory
             do {
                 let folder = dir as NSString
@@ -638,14 +624,14 @@ extension FreePlayer {
     }
     
     public static func removeIncompleteCache() {
-        DispatchQueue.global(qos: .userInitiated).async {
+        DispatchQueue.global(qos: .utility).async {
             let fs = FileManager.default
             let dir = StreamConfiguration.shared.cacheDirectory
             do {
                 let folder = dir as NSString
                 let files = try fs.contentsOfDirectory(atPath: dir)
                 for item in files {
-                    if item.hasSuffix(".dou"), !files.contains(item + ".metadata") {
+                    if item.hasSuffix(".tmp") {
                         let path = folder.appendingPathComponent(item)
                         try fs.removeItem(atPath: path)
                     }

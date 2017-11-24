@@ -15,7 +15,7 @@ import MediaPlayer
         public var name = "" { didSet { FPLogger.write(msg: "🎹:\(name)") } }
         public var artist = ""
         public var album = ""
-        public var artwork = UIImage() { didSet { didSetImage() } }
+        public var artwork: UIImage? = nil { didSet { didSetImage() } }
         public var duration = 0
         public var playbackRate = Double()
         public var playbackTime = Double()
@@ -31,10 +31,12 @@ import MediaPlayer
             map[MPMediaItemPropertyTitle] = name
             map[MPMediaItemPropertyArtist] = artist
             map[MPMediaItemPropertyAlbumTitle] = album
-            map[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(image: artwork)
             map[MPNowPlayingInfoPropertyElapsedPlaybackTime] = playbackTime
             map[MPNowPlayingInfoPropertyPlaybackRate] = playbackRate
             map[MPMediaItemPropertyPlaybackDuration] = duration
+            if let image = artwork {
+                map[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(image: image)
+            }
             _lock.unlock()
             return map
         }
@@ -55,15 +57,15 @@ import MediaPlayer
             guard let u = url, let r = URL(string: u) else { return }
             _coverTask?.cancel()
             endBackgroundTask()
-            DispatchQueue.global(qos: .userInteractive).async {
+            DispatchQueue.global(qos: .utility).async {
                 let request = URLRequest(url: r, cachePolicy: .useProtocolCachePolicy, timeoutInterval: 20)
                 if let d = URLCache.shared.cachedResponse(for: request)?.data, let image = UIImage(data: d)  {
-                    DispatchQueue.main.async {
+//                    DispatchQueue.main.async {
                         self._lock.lock()
                         self.artwork = image
                         self._lock.unlock()
                         self.update()
-                    }
+//                    }
                     return
                 }
                self.startBackgroundTask()
@@ -73,13 +75,13 @@ import MediaPlayer
                         let cre = CachedURLResponse(response: r, data: d)
                         URLCache.shared.storeCachedResponse(cre, for: request)
                     }
-                    DispatchQueue.main.async {
+//                    DispatchQueue.main.async {
                         guard let sself = self, let d = data, let image = UIImage(data: d) else { return }
                         sself._lock.lock()
                         sself.artwork = image
                         sself._lock.unlock()
                         sself.update()
-                    }
+//                    }
                 })
                 task.resume()
                 self._coverTask = task

@@ -479,7 +479,7 @@ extension HttpStream {
             let hs = userData.to(object: HttpStream.self)
             let config = StreamConfiguration.shared
             
-            func hasBytesAvailable(force: Bool = false) {
+            func hasBytesAvailable() {
                 hs.resetOpenTimer(needResetReadedFlag: true)
                 hs._isReadedData = true
                 hs.errorDescription = nil

@@ -50,7 +50,7 @@ public struct FPLogger {
         logfile = dir + "/\(_date).log"
         logToFile = UserDefaults.standard.bool(forKey: "FreePlayer.LogToFile")
         toggleEnableLog()
-        DispatchQueue.global(qos: .userInitiated).setTarget(queue: _logQueue)
+        DispatchQueue.global(qos: .utility).setTarget(queue: _logQueue)
         #if !os(OSX)
         NotificationCenter.default.addObserver(forName: NSNotification.Name.UIApplicationWillTerminate, object: nil, queue: OperationQueue.main) { (_) in
             // 崩溃前保存记录
@@ -88,28 +88,27 @@ public struct FPLogger {
     }
     
     public enum Module {
-        case audioQueue, audioStream, cachingStream, fileStream, httpStream, freePlayer, id3Parser
+        case audioQueue, audioStream, streamProvider, freePlayer, id3Parser
         var symbolize: String {
             switch self {
             case .audioQueue: return "🌈"
             case .audioStream: return "☀️"
-            case .httpStream: return "🌨"
-            case .fileStream: return "🌤"
-            case .cachingStream: return "❄️"
+            case .streamProvider: return "🎙"
             case .freePlayer: return "🍄"
             case .id3Parser: return "⚡️"
             }
         }
 
-        public static var All: Set<Module> { return [.audioQueue, .audioStream, .httpStream, .fileStream, .cachingStream, .freePlayer, .id3Parser] }
+        public static var All: Set<Module> { return [.audioQueue, .audioStream, .streamProvider, .freePlayer, .id3Parser] }
         
         private static var _lastMessage: String?
+        private static var _printQueue = DispatchQueue(label: "FPLogger.print")
         func log(msg: String, method: String = #function) {
             if Module._lastMessage == msg { return }
             Module._lastMessage = msg
             let total = "\(self.symbolize)\(method):\(msg)"
 //            #if (arch(i386) || arch(x86_64)) && os(iOS)//iPhone Simulator
-                print(total)
+            FPLogger.Module._printQueue.sync { print(total) }
 //            #endif
             FPLogger.write(msg: total)
         }
@@ -122,7 +121,7 @@ public struct FPLogger {
     }
     
     public mutating func save() {
-        DispatchQueue.global(qos: .userInitiated).async {
+        DispatchQueue.global(qos: .utility).async {
             if FPLogger.shared.logToFile == false { return }
             let fs = FileManager.default
             if fs.fileExists(atPath: FPLogger.shared.logfile) == false {
@@ -147,7 +146,7 @@ public struct FPLogger {
     private mutating func toggleEnableLog() {
         if logToFile {
             updateTime()
-            DispatchQueue.global(qos: .userInitiated).async {
+            DispatchQueue.global(qos: .utility).async {
                 UserDefaults.standard.set(FPLogger.shared.logToFile, forKey: "FreePlayer.LogToFile")
                 UserDefaults.standard.synchronize()
             }
@@ -189,12 +188,8 @@ func as_log(_ msg: String, function: String = #function) {
     FPLogger.Module.audioStream.log(msg: msg, method: function)
 }
 
-func cs_log(_ msg: String, function: String = #function) {
-    FPLogger.Module.cachingStream.log(msg: msg, method: function)
-}
-
-func hs_log(_ msg: String, function: String = #function) {
-    FPLogger.Module.httpStream.log(msg: msg, method: function)
+func sp_log(_ msg: String, function: String = #function) {
+    FPLogger.Module.streamProvider.log(msg: msg, method: function)
 }
 
 func aq_log(_ msg: String, method: String = #function) {

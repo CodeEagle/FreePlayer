@@ -5,78 +5,80 @@
 //  Created by Lincoln Law on 2017/3/5.
 //  Copyright © 2017年 Lincoln Law. All rights reserved.
 //
-
 import Foundation
-enum Metadata {
-    case text(String)
-    case data(Data)
-}
+
 protocol ID3ParserDelegate: class {
-    func id3metaDataAvailable(metaData: [String : Metadata])
+    func id3metaDataAvailable(metaData: [MetaDataKey : Metadata])
     func id3tagSizeAvailable(tag size: UInt32)
+    func id3tagParsingDone()
 }
+
 final class ID3Parser {
 
-    enum MetaDataKey: String {
-        case artist = "MPMediaItemPropertyArtist"
-        case title = "MPMediaItemPropertyTitle"
-        case cover = "CoverArt"
-    }
-    
     weak var delegate: ID3ParserDelegate?
-    
-    private var _state: State = .initial
-    private var _tagData: Data = Data()
-    private var _bytesReceived = UInt32()
-    private var _tagSize = UInt32() { didSet { totalTagSize() } }
-    private var _majorVersion = UInt8()
-    private var _hasFooter = false
-    private var _usesUnsynchronisation = false
-    private var _usesExtendedHeader = false
-    private var _title = ""
-    private var _performer = ""
-    private var _coverArt: Data?
-    private var _lock: OSSpinLock = OS_SPINLOCK_INIT
-    private var _parsing = false
-    private var _lastData: Data?
-    private var _queue = DispatchQueue(label: "com.selfstudio.freeplayer.idrparser")
+    private lazy var _state: State = .initial
+    private lazy var _tagData: Data = Data()
+    private lazy var _bytesReceived = UInt32()
+    private lazy var _majorVersion = UInt8()
+    private lazy var _hasFooter = false
+    private lazy var _usesUnsynchronisation = false
+    private lazy var _usesExtendedHeader = false
+    private lazy var _title = ""
+    private lazy var _album = ""
+    private lazy var _performer = ""
+    private lazy var _coverArt: Data? = nil
+    private lazy var _lastData: Data? = nil
+    private lazy var _lock: OSSpinLock = OS_SPINLOCK_INIT
+    private lazy var _parsing = false
+    private lazy var _syncQueue = DispatchQueue(label: "id3.sync")
+//    private lazy var _queue = RunloopQueue(named: "StreamProvider.id3.parser")
     private var _hasV1Tag = false { didSet { totalTagSize() } }
-    private var _v1TagDeal = false
-    private var _v2TagDeal = false
+    private var _tagSize = UInt32() { didSet { totalTagSize() } }
+    private lazy var _v1TagDeal = false
+    private lazy var _v2TagDeal = false
     enum State {
         case initial
         case parseFrames
         case tagParsed
         case notID3V2
     }
-    
+
     private struct ID3V1Length {
         static var header: Int { return 3 }
-        static var title: Int  { return 30 }
-        static var artist: Int  { return 30 }
-        static var album: Int  { return 30 }
-        static var year: Int  { return 4 }
-        static var comment: Int  { return 30 }
-        static var genre: Int  { return 4 }
+        static var title: Int { return 30 }
+        static var artist: Int { return 30 }
+        static var album: Int { return 30 }
+        static var year: Int { return 4 }
+        static var comment: Int { return 30 }
+        static var genre: Int { return 4 }
     }
-    init() { }
+
+    deinit { id3_log("ID3Parser deinit") }
+    
+    init() {}
 }
 
 extension ID3Parser {
-    func setState(state: State) { _state = state }
-    
+    func setState(state: State) {
+        _state = state
+        if state == .tagParsed {
+            delegate?.id3tagParsingDone()
+        }
+    }
+
     func parseContent(framesize: UInt32, pos: UInt32, encoding: CFStringEncoding, byteOrderMark: Bool) -> String {
         func un(raw: UnsafeMutablePointer<UInt8>) -> UnsafeMutablePointer<UInt8> { return raw }
         let pointer = _tagData.withUnsafeMutableBytes({ (item: UnsafeMutablePointer<UInt8>) in
-            return item
+            item
         }).advanced(by: Int(pos))
+        guard framesize > 1 else { return "" }
         let size = framesize - 1
-        return CFStringCreateWithBytes(kCFAllocatorDefault, pointer, Int(size), encoding, byteOrderMark)  as String
+        return CFStringCreateWithBytes(kCFAllocatorDefault, pointer, Int(size), encoding, byteOrderMark) as String
     }
 }
 
 extension ID3Parser {
-    
+
     func reset() {
         _state = .initial
         _bytesReceived = 0
@@ -89,42 +91,43 @@ extension ID3Parser {
         _usesExtendedHeader = false
         _tagData.removeAll()
     }
-    
+
     func wantData() -> Bool {
         let done = [State.tagParsed].contains(_state)
         return done == false
     }
-    
+
     func totalTagSize() {
         guard _v1TagDeal, _v2TagDeal else { return }
         var final = _tagSize
         if _hasV1Tag { final += 128 }
         delegate?.id3tagSizeAvailable(tag: final)
     }
-    
-    func detechV1(with url: URL?, total: UInt64) {
-        DispatchQueue.global(qos: .userInitiated).async {
+
+    func detechV1(with url: URL?, total: UInt) {
+        DispatchQueue.global(qos: .utility).async {
             guard let u = url else {
                 self._v1TagDeal = true
                 self._hasV1Tag = false
                 return
             }
-            if HttpStream.canHandle(url: u) {
-                if  total < 128  {
+            let scheme = u.scheme?.lowercased()
+            let isLocal = scheme == "file"
+            let isRemote = isLocal == false
+            if isRemote {
+                if total < 128 {
                     self._v1TagDeal = true
                     self._hasV1Tag = false
                     return
                 }
-                let start = total - 128
-                let end = start + 2
                 var request = URLRequest(url: u)
-                request.setValue("bytes=\(start)-\(end)", forHTTPHeaderField: "Range")
-                NowPlayingInfo.shared.session.dataTask(with: request) {[weak self] (data, resp, error) in
+                request.setValue("bytes=-128", forHTTPHeaderField: "Range")
+                NowPlayingInfo.shared.session.dataTask(with: request) { [weak self] data, _, _ in
                     if let d = data, d.count == 4 {
                         let range = Range(uncheckedBounds: (d.startIndex, d.startIndex.advanced(by: 3)))
                         let sub = d.subdata(in: range)
                         let tag = String(data: sub, encoding: .ascii)
-                        if  tag == "TAG" {
+                        if tag == "TAG" {
                             DispatchQueue.main.async {
                                 self?._v1TagDeal = true
                                 self?._hasV1Tag = true
@@ -137,10 +140,10 @@ extension ID3Parser {
                         self?._hasV1Tag = false
                     }
                 }.resume()
-            } else if FileStream.canHandle(url: u) {
+            } else if isLocal {
                 let raw = u.absoluteString.replacingOccurrences(of: "file://", with: "")
                 var buff = stat()
-                if stat(raw.withCString({$0}), &buff) != 0 {
+                if stat(raw.withCString({ $0 }), &buff) != 0 {
                     DispatchQueue.main.async {
                         self._v1TagDeal = true
                         self._hasV1Tag = false
@@ -148,7 +151,7 @@ extension ID3Parser {
                     return
                 }
                 let size = buff.st_size
-                if let file = fopen(raw.withCString({$0}), "r".withCString({$0})) {
+                if let file = fopen(raw.withCString({ $0 }), "r".withCString({ $0 })) {
                     defer { fclose(file) }
                     fseek(file, -128, SEEK_END)
                     let length = 3
@@ -168,17 +171,20 @@ extension ID3Parser {
                 }
             }
         }
-        
     }
-    
+
     func feedData(data: UnsafeMutablePointer<UInt8>, numBytes: UInt32) {
-        _queue.sync {
-            if self.wantData() == false  { return }
-            if  self._state == .tagParsed  { return }
+        _syncQueue.sync {
+            if self.wantData() == false { return }
+            if self._state == .tagParsed { return }
             if self._parsing { return }
             self._bytesReceived += numBytes
-            let dat = Data(bytes: data, count: Int(numBytes))
-            _lastData = dat
+            let bytesSize = Int(numBytes)
+            let raw = malloc(bytesSize)!.assumingMemoryBound(to: UInt8.self)
+            defer { free(raw) }
+            memcpy(raw, data, bytesSize)
+            let dat = Data(bytes: raw, count: bytesSize)
+            self._lastData = dat
             if self._state != .notID3V2 {
                 self._tagData.append(dat)
             }
@@ -190,7 +196,7 @@ extension ID3Parser {
             } else if self._state == .notID3V2 {
                 var realData = dat
                 var len = dat.count
-                if len < 128 , let d = _lastData {
+                if len < 128, let d = self._lastData {
                     id3_log("append last data")
                     realData = d + dat
                     len = realData.count
@@ -200,25 +206,23 @@ extension ID3Parser {
                     return
                 }
                 let start = len - 128
-                let v1 = realData[start..<len]
-                let tag = v1.map({$0})[0..<3]
+                let v1 = realData[start ..< len]
+                let tag = v1.map({ $0 })[0 ..< 3]
                 let raw = String(bytes: tag, encoding: .ascii)
                 if raw == "TAG" {
-                    self.dealV1(with: v1.map({$0}))
+                    self.dealV1(with: v1.map({ $0 }))
                 }
             }
             if canParseFrames, self._parsing == false {
-                DispatchQueue.global(qos: .userInitiated).async {
-                    self.parseFrames()
-                }
+                 self.parseFrames()
             }
         }
     }
-    
+
     private func dealV1(with data: [UInt8]) {
         id3_log("tag size: \(_tagSize)")
         if StreamConfiguration.shared.autoFillID3InfoToNowPlayingCenter == false { return }
-        
+
         let total = [ID3V1Length.header, ID3V1Length.title, ID3V1Length.artist, ID3V1Length.album, ID3V1Length.year, ID3V1Length.comment]
         var offset = 0
         var end = 0
@@ -228,8 +232,8 @@ extension ID3Parser {
                 continue
             }
             end = len + offset
-            let t = offset..<end
-            let range = data[t].flatMap({$0})
+            let t = offset ..< end
+            let range = data[t].flatMap({ $0 })
             let value = String(bytes: range, encoding: .ascii)?.replacingOccurrences(of: "\0", with: "") ?? ""
             switch i {
             case 1: _title = value
@@ -245,30 +249,30 @@ extension ID3Parser {
         }
         // Push out the metadata
         if let d = delegate {
-            var metadataMap = [String : Metadata]()
-            if !_performer.isEmpty {
-                metadataMap[MetaDataKey.artist.rawValue] = Metadata.text(_performer)
+            var metadataMap = [MetaDataKey: Metadata]()
+            if _performer.isEmpty == false {
+                metadataMap[.artist] = .text(_performer)
             }
-            if !_title.isEmpty {
-                metadataMap[MetaDataKey.title.rawValue] = Metadata.text(_title)
+            if _title.isEmpty == false {
+                metadataMap[.title] = .text(_title)
             }
             if metadataMap.count > 0 {
                 DispatchQueue.main.async { d.id3metaDataAvailable(metaData: metadataMap) }
             }
         }
     }
-    
+
     private func initial() -> Bool {
         // Do we have enough bytes to determine if this is an ID3 tag or not?
         /*
-         char Header[3]; /*必须为"ID3"否则认为标签不存在*/
-         char Ver; /*版本号;ID3V2.3就记录03,ID3V2.4就记录04*/
-         char Revision; /*副版本号;此版本记录为00*/
-         char Flag; /*存放标志的字节，这个版本只定义了三位，稍后详细解说*/
-         char Size[4]; /*标签大小，包括标签帧和标签头。（不包括扩展标签头的10个字节）*/
+         char Header[3]; /* 必须为"ID3"否则认为标签不存在 */
+         char Ver; /* 版本号;ID3V2.3就记录03,ID3V2.4就记录04 */
+         char Revision; /* 副版本号;此版本记录为00 */
+         char Flag; /* 存放标志的字节，这个版本只定义了三位，稍后详细解说 */
+         char Size[4]; /* 标签大小，包括标签帧和标签头。（不包括扩展标签头的10个字节） */
          */
         if _bytesReceived <= 9 { return false }
-        let sub = _tagData[0...2]
+        let sub = _tagData[0 ... 2]
         let content = String(bytes: sub, encoding: .ascii)
         if content != "ID3" {
             id3_log("Not an ID3v2 tag, bailing out")
@@ -298,7 +302,7 @@ extension ID3Parser {
         let eight = (UInt32(_tagData[8]) & 0x7F) << 7
         let nine = UInt32(_tagData[9]) & 0x7F
         var tagsize = six | seven | eight | nine
-        
+
         if tagsize > 0 {
             if _hasFooter { tagsize += 10 }
             tagsize += 10
@@ -317,14 +321,12 @@ extension ID3Parser {
         setState(state: .notID3V2)
         return false
     }
-    
+
     private func parseFrames() {
         // Do we have enough data to parse the frames?
         if _tagData.count < Int(_tagSize) {
             id3_log("Not enough data received for parsing, have \(_tagData.count) bytes, need \(_tagSize) bytes")
-            DispatchQueue.main.async {
-                self._parsing = false
-            }
+            DispatchQueue.main.async { self._parsing = false }
             return
         }
         _parsing = true
@@ -332,11 +334,13 @@ extension ID3Parser {
         // Do we have an extended header? If we do, skip it
         if _usesExtendedHeader {
             let i = UInt32(_tagData[pos])
-            let ii = UInt32(_tagData[pos+1])
-            let iii = UInt32(_tagData[pos+2])
-            let iv = UInt32(_tagData[pos+3])
-            let extendedHeaderSize = Int((i << 21) | (ii << 14) | (iii << 7) | iv)
-            
+            let ii = UInt32(_tagData[pos + 1])
+            let iii = UInt32(_tagData[pos + 2])
+            let iv = UInt32(_tagData[pos + 3])
+            //            let extendedHeaderSize = Int((i << 21) | (ii << 14) | (iii << 7) | iv)
+            let array = [i, ii, iii, iv]
+            let extendedHeaderSize = array.toInt(offsetSize: 7)
+
             if pos + extendedHeaderSize >= Int(_tagSize) {
                 DispatchQueue.main.async {
                     self.setState(state: .notID3V2)
@@ -347,16 +351,22 @@ extension ID3Parser {
             id3_log("Skipping extended header, size \(extendedHeaderSize)")
             pos += extendedHeaderSize
         }
-        
-        while pos < Int(_tagSize) {
+        parsing(from: pos)
+        doneParsing()
+    }
+
+    private func parsing(from position: Int) {
+        var pos = position
+        let total = Int(_tagSize)
+        while pos < total {
             var frameName: [UInt8] = Array(repeatElement(0, count: 4))
             frameName[0] = _tagData[pos]
-            frameName[1] = _tagData[pos+1]
-            frameName[2] = _tagData[pos+2]
-            
-            if _majorVersion >= 3 { frameName[3] = _tagData[pos+3] }
+            frameName[1] = _tagData[pos + 1]
+            frameName[2] = _tagData[pos + 2]
+
+            if _majorVersion >= 3 { frameName[3] = _tagData[pos + 3] }
             else { frameName[3] = 0 }
-            
+
             var framesize = 0
             var i: UInt32
             var ii: UInt32
@@ -365,21 +375,25 @@ extension ID3Parser {
             if _majorVersion >= 3 {
                 pos += 4
                 i = UInt32(_tagData[pos])
-                ii = UInt32(_tagData[pos+1])
-                iii = UInt32(_tagData[pos+2])
-                iv = UInt32(_tagData[pos+3])
-                let a = (i << 21)
-                let b = (ii << 14)
-                let c = (iii << 7)
-                framesize = Int( a + b + c + iv)
+                ii = UInt32(_tagData[pos + 1])
+                iii = UInt32(_tagData[pos + 2])
+                iv = UInt32(_tagData[pos + 3])
+                //                let a = (i << 21)
+                //                let b = (ii << 14)
+                //                let c = (iii << 7)
+                let array = [i, ii, iii, iv]
+                framesize = array.toInt(offsetSize: 7)
+                //                framesize = Int( a + b + c + iv)
             } else {
                 i = UInt32(_tagData[pos])
-                ii = UInt32(_tagData[pos+1])
-                iii = UInt32(_tagData[pos+2])
+                ii = UInt32(_tagData[pos + 1])
+                iii = UInt32(_tagData[pos + 2])
                 iv = 0
-                framesize = Int((i << 16) + (ii << 8) + iii)
+                let array = [i, ii, iii, iv]
+                framesize = array.toInt(offsetSize: 8)
+                //                framesize = Int((i << 16) + (ii << 8) + iii)
             }
-            
+
             if framesize == 0 {
                 DispatchQueue.main.async {
                     self.setState(state: .notID3V2)
@@ -388,43 +402,46 @@ extension ID3Parser {
                 break
                 // Break from the loop and then out of the case context
             }
-            
+
             if _majorVersion >= 3 { pos += 6 }
             else { pos += 3 }
-            
+
             // ISO-8859-1 is the default encoding
             var encoding = CFStringBuiltInEncodings.isoLatin1.rawValue
             var byteOrderMark = false
-            
+
             if _tagData[pos] == 3 {
                 encoding = CFStringBuiltInEncodings.UTF8.rawValue
             } else if _tagData[pos] == 2 {
                 encoding = CFStringBuiltInEncodings.UTF16BE.rawValue
             } else if _tagData[pos] == 1 {
-                encoding = CFStringBuiltInEncodings.UTF16.rawValue;
+                encoding = CFStringBuiltInEncodings.UTF16.rawValue
                 byteOrderMark = true
             }
             let name = String(bytes: frameName, encoding: .utf8) ?? ""
             if name == "TIT2" || name == "TT2" {
                 _title = parseContent(framesize: UInt32(framesize), pos: UInt32(pos) + 1, encoding: encoding, byteOrderMark: byteOrderMark)
                 id3_log("ID3 title parsed: \(_title)")
+            } else if name == "TALB" {
+                _album = parseContent(framesize: UInt32(framesize), pos: UInt32(pos) + 1, encoding: encoding, byteOrderMark: byteOrderMark)
+                id3_log("ID3 album parsed: \(_album)")
             } else if name == "TPE1" || name == "TP1" {
                 _performer = parseContent(framesize: UInt32(framesize), pos: UInt32(pos) + 1, encoding: encoding, byteOrderMark: byteOrderMark)
                 id3_log("ID3 performer parsed:\(_performer)")
             } else if name == "APIC" {
                 var dataPos = pos + 1
                 var imageType: [UInt8] = []
-                for i in dataPos..<(dataPos + 65) {
+                for i in dataPos ..< (dataPos + 65) {
                     if _tagData[i] != 0 {
                         imageType.append(_tagData[i])
                     } else { break }
                 }
                 dataPos += imageType.count + 1
                 let type = String(bytes: imageType, encoding: .utf8) ?? ""
-                let jpeg = type == "image/jpeg"
+                let jpeg = type == "image/jpeg" || type == "image/jpg"
                 let png = type == "image/png"
-                if  jpeg || png {
-//                  Skip the image description
+                if jpeg || png {
+                    //                  Skip the image description
                     var startPos = dataPos
                     let totalCount = _tagData.count - 2
                     while dataPos < totalCount {
@@ -435,7 +452,7 @@ extension ID3Parser {
                                 startPos = dataPos
                                 break
                             }
-                        } else if png, dataPos + 3 < _tagData.count - 1{
+                        } else if png, dataPos + 3 < _tagData.count - 1 {
                             let thrid = _tagData[dataPos + 2]
                             let forth = _tagData[dataPos + 3]
                             if first == 0x89, second == 0x50, thrid == 0x4E, forth == 0x47 {
@@ -447,10 +464,12 @@ extension ID3Parser {
                     }
                     id3_log("Image type \(type), parsing, dataPos:\(dataPos)")
                     if _majorVersion == 3 {
-                        let a = (i << 24)
-                        let b = (ii << 16)
-                        let c = (iii << 8)
-                        framesize = Int( a + b + c + iv)
+                        //                        let a = (i << 24)
+                        //                        let b = (ii << 16)
+                        //                        let c = (iii << 8)
+                        //                        framesize = Int( a + b + c + iv)
+                        let array = [i, ii, iii, iv]
+                        framesize = array.toInt(offsetSize: 8)
                         id3_log("framesize change due to _majorVersion 3 :\(framesize))")
                     }
                     let coverArtSize = framesize - (startPos - pos)
@@ -462,11 +481,11 @@ extension ID3Parser {
                     #if DEBUG
                         let startI = d.startIndex
                         let endI = d.startIndex.advanced(by: 10)
-                        let prefix = d.subdata(in: Range(uncheckedBounds: (startI, endI))).map{$0}
+                        let prefix = d.subdata(in: Range(uncheckedBounds: (startI, endI))).map { $0 }
                         id3_log("_coverArt, prefix 10 bit:\(prefix)")
                     #endif
                 } else {
-                    id3_log("\(type) is an unknown type for image data, skipping")
+                    id3_log("->|\(type)|<- is an unknown type for image data, skipping")
                 }
             } else {
                 // Unknown/unhandled frame
@@ -474,18 +493,23 @@ extension ID3Parser {
             }
             pos += framesize
         }
-        
+    }
+
+    private func doneParsing() {
         // Push out the metadata
         if let d = delegate {
-            var metadataMap = [String : Metadata]()
-            if !_performer.isEmpty {
-                metadataMap[MetaDataKey.artist.rawValue] = Metadata.text(_performer)
+            var metadataMap = [MetaDataKey: Metadata]()
+            if _performer.isEmpty == false {
+                metadataMap[MetaDataKey.artist] = Metadata.text(_performer)
             }
-            if !_title.isEmpty {
-                metadataMap[MetaDataKey.title.rawValue] = Metadata.text(_title)
+            if _album.isEmpty == false {
+                metadataMap[MetaDataKey.album] = Metadata.text(_album)
+            }
+            if _title.isEmpty == false {
+                metadataMap[MetaDataKey.title] = Metadata.text(_title)
             }
             if let d = _coverArt {
-                metadataMap[MetaDataKey.cover.rawValue] = Metadata.data(d)
+                metadataMap[MetaDataKey.cover] = Metadata.data(d)
             }
             if metadataMap.count > 0 {
                 DispatchQueue.main.async { d.id3metaDataAvailable(metaData: metadataMap) }
@@ -499,9 +523,14 @@ extension ID3Parser {
     }
 }
 
-extension Array {
-    subscript(fp_safe index: Int) -> Element? {
-        return indices.contains(index) ? self[index] : nil
+
+extension Array where Element == UInt32 {
+    func toInt(offsetSize: Int) -> Int {
+        let total = count
+        var totalSize = 0
+        for i in 0 ..< total {
+            totalSize += Int(UInt32(self[i]) << (offsetSize * ((total - 1) - i)))
+        }
+        return totalSize
     }
 }
-

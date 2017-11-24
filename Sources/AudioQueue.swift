@@ -9,14 +9,13 @@
 import AudioToolbox
 // MARK: - AudioQueueDelegate
 protocol AudioQueueDelegate: class {
-    func audioQueueStateChanged(state: AudioQueue.State)
+    func audioQueueStateChanged(state: State)
     func audioQueueBuffersEmpty()
     func audioQueueInitializationFailed()
     func audioQueueFinishedPlayingPacket()
 }
 // MARK: - AudioQueue
 final class AudioQueue {
-    enum State { case idle, running, paused, unknown }
     
     weak var delegate: AudioQueueDelegate?
     var streamDesc: AudioStreamBasicDescription?
@@ -51,6 +50,7 @@ final class AudioQueue {
     private var _state: State = .unknown
     private var _outAQ: AudioQueueRef?// the audio queue
     
+    private var _buffersWeakPointer: [UnsafeMutableRawPointer?] = []
     private var _audioQueueBuffer: UnsafeMutablePointer<AudioQueueBufferRef?>?// audio queue buffers
     private var _packetDescs: [AudioStreamPacketDescription] = []// packet descriptions for enqueuing audio
     // the index of the audioQueueBuffer that is being filled
@@ -83,6 +83,7 @@ final class AudioQueue {
         
         pthread_mutex_destroy(&_bufferInUseMutex)
         pthread_cond_destroy(&_bufferFreeCondition)
+        aq_log("done")
     }
     
     init() {
@@ -90,8 +91,11 @@ final class AudioQueue {
         let bufferCount = Int(config.bufferCount)
         _packetDescs = Array(repeating: AudioStreamPacketDescription(), count: Int(config.maxPacketDescs))
         _audioQueueBuffer = UnsafeMutablePointer<AudioQueueBufferRef?>.allocate(capacity: bufferCount)
+        
         _bufferInUse = UnsafeMutablePointer<Bool>.allocate(capacity: bufferCount)
-        for i in 0..<bufferCount { _bufferInUse?.advanced(by: i).pointee = false }
+        for i in 0..<bufferCount {
+            _bufferInUse?.advanced(by: i).pointee = false
+        }
         if pthread_mutex_init(&_bufferInUseMutex, nil) != 0 { aq_log("_bufferInUseMutex init failed!") }
         if pthread_cond_init(&_bufferFreeCondition, nil) != 0 { aq_log("_bufferFreeCondition init failed!") }
     }
@@ -132,7 +136,7 @@ extension AudioQueue {
     }
     
     func stop(immediately: Bool = false) {
-        if !_audioQueueStarted {
+        if _audioQueueStarted == false {
             aq_log("audio queue already stopped, return!")
             return
         }
@@ -297,7 +301,7 @@ extension AudioQueue {
         }
         cleanup()
         var err = noErr
-        let this = UnsafeMutableRawPointer.voidPointer(from: self)
+        let this = UnsafeMutableRawPointer.from(object: self)
         err = AudioQueueNewOutput(&desc, AudioQueue.audioQueueOutputCallback, this, CFRunLoopGetCurrent(), nil, 0, &_outAQ)
         guard let queue = _outAQ else {
             if err != noErr {
@@ -318,13 +322,16 @@ extension AudioQueue {
         let bufferCount = Int(configuration.bufferCount)
         for i in 0..<bufferCount {
             let buffer = audioQueueBuffer.advanced(by: i)
-            err = AudioQueueAllocateBuffer(queue, UInt32(configuration.bufferSize), buffer)
+            let raw = UnsafeMutablePointer<AudioQueueBufferRef?>.allocate(capacity: 1)
+            defer{ free(raw) }
+            err = AudioQueueAllocateBuffer(queue, UInt32(configuration.bufferSize), raw)
+            buffer.pointee = raw.pointee
             if err != noErr {
                 /* If allocating the buffers failed, everything else will fail, too.
                  *  Dispose the queue so that we can later on detect that this
                  *  queue in fact has not been initialized.
                  */
-                aq_log(" error in AudioQueueAllocateBuffer")
+                aq_log("error in AudioQueueAllocateBuffer")
                 AudioQueueDispose(queue, true)
                 _outAQ = nil
                 lastError = err

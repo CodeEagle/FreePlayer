@@ -11,7 +11,7 @@ import AVFoundation
 #if os(iOS)
     import UIKit
 #endif
-public var FreePlayerVersion: Double = 1.1
+public var FreePlayerVersion: Double = 2.0
 /** FreePlayer 配置单例 */
 /**
  # 因为 StreamConfiguration.shared 是 struct
@@ -67,9 +67,27 @@ public struct StreamConfiguration {
     /** 自定义 UA */
     public var userAgent: String?
     /** 缓存目录 */
-    public var cacheDirectory = NSTemporaryDirectory()
-    /** 存储目录 */
-    public var storeDirectory: String? 
+    public lazy var cacheDirectory: String = {
+        let base = NSSearchPathForDirectoriesInDomains(.cachesDirectory, .userDomainMask, true).first!
+        let target = "\(base)/FreePlayer/Tmp"
+        let fs = FileManager.default
+        guard fs.fileExists(atPath: target) == true else { return target }
+        try? fs.createDirectory(atPath: target, withIntermediateDirectories: true, attributes: nil)
+        return target
+    }()
+    /** 缓存命名策略 */
+    public lazy var cacheNaming: CacheNamingPolicy = .custom({ (url) -> String in
+        let raw = url.path
+        guard let dat = raw.data(using: .utf8) else { return raw }
+        let sub = dat.base64EncodedString()
+        let range = NSMakeRange(0, min(24, sub.count))
+        let value = String(sub[Range(range, in: sub)!])
+        return value//"\(value).dou"
+    })
+    /** 缓存策略 */
+    public lazy var cachePolicy: CachePolicy = .enable
+    /** 代理策略 */
+    public lazy var proxyPolicy: ProxyPolicy = .system
     /** 自定义 http header 字典 */
     public var predefinedHttpHeaderValues: [String : String] = [:]
     /** 使用时间数计算预缓冲大小 */
@@ -86,6 +104,8 @@ public struct StreamConfiguration {
     public var enableTimeAndPitchConversion = false
     /** 需要内容类型检查 */
     public var requireStrictContentTypeChecking = false
+    /** 远程连接最大重试次数 */
+    public var maxRemoteStreamOpenRetry = 5
     #if !os(OSX)
         /** 需要网络播放检查 */
         public var requireNetworkPermision = true
@@ -106,16 +126,17 @@ public struct StreamConfiguration {
     /** 使用自定义代理 authenticationScheme, kCFHTTPAuthenticationSchemeBasic... */
     public var customProxyAuthenticationScheme: AuthenticationScheme = .digest { didSet { didConfigureProxy() } }
     
+    
+    public var enableVolumeMixer = false
+    
+    public var equalizerBandFrequencies: [Float] = []
+    
+    
+    
     private init() {
-        #if (arch(i386) || arch(x86_64)) && os(iOS)//iPhone Simulator
-            bufferCount = 8
-            bufferSize = 32768
-            debugPrint("Notice: FreePlayer running on simulator, low latency audio not available!")
-        #else
-            bufferCount = 64
-            bufferSize = 8192
-        #endif
-        
+       // https://github.com/muhku/FreeStreamer/issues/387
+        bufferCount = 64
+        bufferSize = 8192
         maxPacketDescs = 512
         httpConnectionBufferSize = 8192
         outputSampleRate = 44100
@@ -168,3 +189,91 @@ public struct StreamConfiguration {
         NowPlayingInfo.shared.updateProxy()
     }
 }
+extension StreamConfiguration {
+    
+    public enum State { case idle, running, paused, unknown }
+    
+    public enum Metadata {
+        case text(String)
+        case data(Data)
+        case other(String, String)
+    }
+    public enum MetaDataKey: String {
+        case artist = "MPMediaItemPropertyArtist"
+        case title = "MPMediaItemPropertyTitle"
+        case cover = "CoverArt"
+        case album
+        case other
+    }
+    public enum CacheNamingPolicy {
+        /// default is url.path.hashValue
+        case `default`
+        case custom((URL) -> String)
+        
+        func name(for url: URL) -> String {
+            switch self {
+            case .default: return url.path.replacingOccurrences(of: "/", with: "_")
+            case .custom(let block): return block(url)
+            }
+        }
+    }
+    
+    public enum CachePolicy {
+        case enable
+        case disable
+        case enableAndSearching(String)
+        
+        var isEnabled: Bool {
+            switch self {
+            case .disable: return false
+            default: return true
+            }
+        }
+        
+        var additionalFolder: String? {
+            switch self {
+            case .enableAndSearching(let folder): return folder
+            default: return nil
+            }
+        }
+    }
+    
+    public enum ProxyPolicy {
+        case system
+        case custom(Info)
+        
+        public struct Info {
+            /** 使用自定义代理 用户名 */
+            public let username: String
+            /** 使用自定义代理 密码 */
+            public let password: String
+            /** 使用自定义代理 Http Host */
+            public let host: String
+            /** 使用自定义代理 Http Port */
+            public let port: UInt
+            /** 使用自定义代理 authenticationScheme, kCFHTTPAuthenticationSchemeBasic... */
+            public let scheme: AuthenticationScheme
+            
+            public init(username: String, password: String, host: String, port: UInt, scheme: AuthenticationScheme) {
+                self.username = username
+                self.password = password
+                self.host = host
+                self.port = port
+                self.scheme = scheme
+            }
+            
+            public enum AuthenticationScheme {
+                case digest, basic
+                var name: CFString {
+                    switch self {
+                    case .digest: return kCFHTTPAuthenticationSchemeDigest
+                    case .basic: return kCFHTTPAuthenticationSchemeBasic
+                    }
+                }
+            }
+        }
+    }
+}
+public typealias State = StreamConfiguration.State
+public typealias MetaDataKey = StreamConfiguration.MetaDataKey
+public typealias Metadata = StreamConfiguration.Metadata

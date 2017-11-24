@@ -81,7 +81,7 @@
         
         
         private lazy var _segment: UISegmentedControl = {
-            let all: [FPLogger.Module] = [.audioQueue, .audioStream, .httpStream, .fileStream, .cachingStream, .freePlayer, .id3Parser]
+            let all: [FPLogger.Module] = [.audioQueue, .audioStream, .streamProvider, .freePlayer, .id3Parser]
             let items = all.map({$0.symbolize}) + ["全部"]
             let seg = UISegmentedControl(items: items)
             seg.frame = CGRect(x: 20, y: 64 + 44 + 44 + 10, width: UIScreen.main.bounds.width - 40, height: 30)
@@ -95,12 +95,10 @@
             switch sender.selectedSegmentIndex {
             case 0: modules.insert(.audioQueue)
             case 1: modules.insert(.audioStream)
-            case 2: modules.insert(.httpStream)
-            case 3: modules.insert(.fileStream)
-            case 4: modules.insert(.cachingStream)
-            case 5: modules.insert(.freePlayer)
-            case 6: modules.insert(.id3Parser)
-            case 7: modules = FPLogger.Module.All
+            case 2: modules.insert(.streamProvider)
+            case 3: modules.insert(.freePlayer)
+            case 4: modules.insert(.id3Parser)
+            case 5: modules = FPLogger.Module.All
             default: break
             }
             FPLogger.disable()
@@ -204,7 +202,7 @@
         }
         
         private func load() {
-            DispatchQueue.global(qos: .userInitiated).async {
+            DispatchQueue.global(qos: .utility).async {
                 let folder = FPLogger.shared.logFolder
                 let fs = FileManager.default
                 do {
@@ -254,7 +252,7 @@
         
         override func tableView(_ tableView: UITableView, commit editingStyle: UITableViewCellEditingStyle, forRowAt indexPath: IndexPath) {
             if editingStyle == .delete {
-                DispatchQueue.global(qos: .userInitiated).async {
+                DispatchQueue.global(qos: .utility).async {
                     let folder = FPLogger.shared.logFolder
                     let fs = FileManager.default
                     do {
@@ -290,7 +288,7 @@
     private final class LogFileDetail: UIViewController, MFMailComposeViewControllerDelegate {
         
         private lazy var _segment: UISegmentedControl = {
-            let all: [FPLogger.Module] = [.audioQueue, .audioStream, .httpStream, .fileStream, .cachingStream, .freePlayer, .id3Parser]
+            let all: [FPLogger.Module] = [.audioQueue, .streamProvider, .audioStream, .freePlayer, .id3Parser]
             let items = all.map({$0.symbolize}) + ["全部"]
             let seg = UISegmentedControl(items: items)
             seg.addTarget(self, action:  #selector(LogFileDetail.segChange(sender:)), for: .valueChanged)
@@ -304,11 +302,9 @@
             switch sender.selectedSegmentIndex {
             case 0: filter = FPLogger.Module.audioQueue
             case 1: filter = FPLogger.Module.audioStream
-            case 2: filter = FPLogger.Module.httpStream
-            case 3: filter = FPLogger.Module.fileStream
-            case 4: filter = FPLogger.Module.cachingStream
-            case 5: filter = FPLogger.Module.freePlayer
-            case 6: filter = FPLogger.Module.id3Parser
+            case 2: filter = FPLogger.Module.streamProvider
+            case 3: filter = FPLogger.Module.freePlayer
+            case 4: filter = FPLogger.Module.id3Parser
             default: break
             }
             _textView?.lines(filter: filter)
@@ -475,7 +471,7 @@
         
         public func lines(filter: FPLogger.Module? = nil) {
             _filter = filter
-            DispatchQueue.global(qos: .userInitiated).async {
+            DispatchQueue.global(qos: .utility).async {
                 let lines = self._total.components(separatedBy: FPLogger.lineSeperator)
                 if let f = filter {
                     let module = f.symbolize

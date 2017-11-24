@@ -48,8 +48,12 @@ class ViewController: UIViewController {
 //        print(StreamConfiguration.shared)
         _localMP3 = Bundle.main.url(forResource: "久远-光と波の记忆", withExtension: "mp3")
         //"http://mp3-cdn.luoo.net/low/luoo/radio895/03.mp3"
-        //"http://199.180.75.58:9061/stream"
+//        "http://199.180.75.58:9061/stream"
+        
 //        _localMP3 = URL(string: "http://mp3-cdn.luoo.net/low/package/neoclassic01/radio01/03.mp3")
+//        _localMP3 = URL(string: "http://www.kozco.com/tech/32.mp3")
+//        _localMP3 = URL(string: "http://199.180.75.58:9061/stream")
+        
         // Do any additional setup after loading the view, typically from a nib.
     }
     

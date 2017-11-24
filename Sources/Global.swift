@@ -22,8 +22,8 @@ public struct PlaybackPosition {
 }
 
 public struct Position {
-    public var start = UInt64()
-    public var end = UInt64()
+    public var start: UInt = 0
+    public var end: UInt = 0
     public var position = Float()
     public init() { }
 }

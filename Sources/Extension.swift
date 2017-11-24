@@ -12,17 +12,24 @@ extension OSSpinLock {
     mutating func lock() { OSSpinLockLock(&self) }
     mutating func unlock() { OSSpinLockUnlock(&self) }
 }
-
+extension Array {
+    subscript(fp_safe index: Int) -> Element? {
+        return indices ~= index ? self[index] : nil
+    }
+}
 extension UnsafeMutableRawPointer {
     func to<T : AnyObject>(object: T.Type) -> T {
         return Unmanaged<T>.fromOpaque(self).takeUnretainedValue()
     }
-    static func voidPointer<T: AnyObject>(from object: T) -> UnsafeMutableRawPointer {
+    static func from<T: AnyObject>(object: T) -> UnsafeMutableRawPointer {
         return Unmanaged<T>.passUnretained(object).toOpaque()
     }
 }
 
 extension OSStatus {
+    enum OSStatusError: Error {
+        case faile(String)
+    }
     private func humanErrorMessage(from raw: String) -> String {
         var result = ""
         switch raw {
@@ -49,8 +56,8 @@ extension OSStatus {
         return result
     }
     
-    public func check(operation: String, file: String = #file, method: String = #function, line: Int = #line) {
-        guard self != noErr else { return }
+    @discardableResult func check(operation: String = "", file: String = #file, method: String = #function, line: Int = #line) -> String? {
+        guard self != noErr else { return nil }
         
         var result: String = ""
         var char = Int(bigEndian)
@@ -68,6 +75,11 @@ extension OSStatus {
         let humanMsg = humanErrorMessage(from: result)
         let msg = "\n{\n file: \(file):\(line),\n function: \(method),\n operation: \(operation),\n message: \(humanMsg)\n}"
         print(msg)
+        return msg
+    }
+    
+    func throwCheck(file: String = #file, method: String = #function, line: Int = #line) throws {
+        guard let msg = check(file: file, method: method, line: line) else { return }
+        throw OSStatusError.faile(msg)
     }
 }
-
