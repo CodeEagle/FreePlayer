@@ -1,3 +1,8 @@
+
+⚠️Deprecated⚠️
+---
+Use [APlay](https://github.com/CodeEagle/APlay) instead.
+
 FreePlayer
 ---
 Swift framework for streaming, playing audio
